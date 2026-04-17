@@ -40,7 +40,72 @@ type resumeResponse struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// resumeAgents maps agent type strings to their resume command templates.
+func writeResumeResponse(
+	w http.ResponseWriter,
+	launched bool,
+	terminal string,
+	command string,
+	cwd string,
+	errorCode string,
+) {
+	writeJSON(w, http.StatusOK, resumeResponse{
+		Launched: launched,
+		Terminal: terminal,
+		Command:  command,
+		Cwd:      cwd,
+		Error:    errorCode,
+	})
+}
+
+func writeResumeFallback(
+	w http.ResponseWriter,
+	command string,
+	cwd string,
+	errorCode string,
+) {
+	writeResumeResponse(w, false, "", command, cwd, errorCode)
+}
+
+var runDesktopURLProcess = func(proc *exec.Cmd) error {
+	return proc.Run()
+}
+
+func startDetachedProcess(proc *exec.Cmd) error {
+	if err := proc.Start(); err != nil {
+		return err
+	}
+	go func() { _ = proc.Wait() }()
+	return nil
+}
+
+func launchClaudeDesktopAndRespond(
+	w http.ResponseWriter,
+	agent string,
+	sessionID string,
+	launchDir string,
+	terminal string,
+	responseCmd string,
+) {
+	proc := launchClaudeDesktopResume(agent, sessionID, launchDir)
+	if proc == nil {
+		writeResumeFallback(
+			w, responseCmd, launchDir, "desktop_launch_unsupported",
+		)
+		return
+	}
+	if err := runDesktopURLProcess(proc); err != nil {
+		log.Printf("resume: Claude Desktop launch failed: %v", err)
+		writeResumeFallback(
+			w, responseCmd, launchDir, "desktop_launch_failed",
+		)
+		return
+	}
+	writeResumeResponse(
+		w, true, terminal, responseCmd, launchDir, "",
+	)
+}
+
+// resumeAgents maps agent type strings to their CLI resume command templates.
 // The %s placeholder is replaced with the (quoted) session ID.
 var resumeAgents = map[string]string{
 	"claude":   "claude --resume %s",
@@ -50,6 +115,19 @@ var resumeAgents = map[string]string{
 	"gemini":   "gemini --resume %s",
 	"opencode": "opencode --session %s",
 	"amp":      "amp --resume %s",
+}
+
+func supportsDesktopResume(agent string) bool {
+	return agent == "claude" || agent == "claude-cowork"
+}
+
+func findOpener(openers []Opener, id string) *Opener {
+	for i := range openers {
+		if openers[i].ID == id {
+			return &openers[i]
+		}
+	}
+	return nil
 }
 
 // terminalCandidates lists terminal emulators to try on Linux, in
@@ -90,6 +168,7 @@ func (s *Server) handleResumeSession(
 		writeError(w, http.StatusNotFound, "session not found")
 		return
 	}
+	agent := string(session.Agent)
 
 	// Remote sessions have host-prefixed IDs (host~rawID).
 	// They cannot be resumed locally.
@@ -97,16 +176,6 @@ func (s *Server) handleResumeSession(
 		writeError(
 			w, http.StatusBadRequest,
 			"cannot resume remote session",
-		)
-		return
-	}
-
-	// Check if this agent supports resumption.
-	tmpl, ok := resumeAgents[string(session.Agent)]
-	if !ok {
-		writeError(
-			w, http.StatusBadRequest,
-			fmt.Sprintf("agent %q does not support resume", session.Agent),
 		)
 		return
 	}
@@ -120,20 +189,33 @@ func (s *Server) handleResumeSession(
 		}
 	}
 
+	// Check if this agent supports resumption.
+	tmpl, hasCLIResume := resumeAgents[agent]
+	if !hasCLIResume &&
+		!supportsDesktopResume(agent) {
+		writeError(
+			w, http.StatusBadRequest,
+			fmt.Sprintf("agent %q does not support resume", session.Agent),
+		)
+		return
+	}
+
 	// Strip agent prefix from compound ID only when it matches the
 	// expected agent (e.g. "codex:abc" → "abc"). Raw IDs that
 	// happen to contain ":" are left untouched.
-	prefix := string(session.Agent) + ":"
+	prefix := agent + ":"
 	rawID := strings.TrimPrefix(id, prefix)
 
 	// Build the CLI command.
 	var cmd string
-	if strings.Contains(tmpl, "%s") {
-		cmd = fmt.Sprintf(tmpl, shellQuote(rawID))
-	} else {
-		cmd = tmpl
+	if hasCLIResume {
+		if strings.Contains(tmpl, "%s") {
+			cmd = fmt.Sprintf(tmpl, shellQuote(rawID))
+		} else {
+			cmd = tmpl
+		}
 	}
-	if string(session.Agent) == "claude" {
+	if agent == "claude" {
 		if req.SkipPermissions {
 			cmd += " --dangerously-skip-permissions"
 		}
@@ -146,12 +228,12 @@ func (s *Server) handleResumeSession(
 	// shell to start in the latest session cwd so the resumed chat
 	// inherits the same working directory it last used.
 	launchDir, workspaceDir := resolveResumePaths(session)
-	if string(session.Agent) == "cursor" && workspaceDir != "" {
+	if agent == "cursor" && workspaceDir != "" {
 		cmd += " --workspace " + shellQuote(workspaceDir)
 	}
 
 	responseCmd := cmd
-	switch string(session.Agent) {
+	switch agent {
 	case "claude", "kiro":
 		responseCmd = commandWithCwd(cmd, launchDir)
 	}
@@ -159,11 +241,9 @@ func (s *Server) handleResumeSession(
 	// If the caller only wants the command string (e.g. for
 	// clipboard copy), skip terminal detection and launch.
 	if req.CommandOnly {
-		writeJSON(w, http.StatusOK, resumeResponse{
-			Launched: false,
-			Command:  responseCmd,
-			Cwd:      launchDir,
-		})
+		writeResumeResponse(
+			w, false, "", responseCmd, launchDir, "",
+		)
 		return
 	}
 
@@ -177,14 +257,7 @@ func (s *Server) handleResumeSession(
 
 	// If the caller specified a terminal opener, use it directly.
 	if req.OpenerID != "" {
-		openers := detectOpeners()
-		var opener *Opener
-		for i := range openers {
-			if openers[i].ID == req.OpenerID {
-				opener = &openers[i]
-				break
-			}
-		}
+		opener := findOpener(detectOpeners(), req.OpenerID)
 		if opener == nil {
 			writeError(w, http.StatusBadRequest,
 				fmt.Sprintf("opener %q not found", req.OpenerID))
@@ -193,62 +266,52 @@ func (s *Server) handleResumeSession(
 
 		// Claude Desktop: hand off via claude:// URL scheme.
 		if opener.ID == "claude-desktop" {
-			if string(session.Agent) != "claude" {
+			if !supportsDesktopResume(agent) {
 				writeError(w, http.StatusBadRequest,
 					"Claude Desktop resume only supports Claude sessions")
 				return
 			}
-			proc := launchClaudeDesktop(rawID, launchDir)
-			if err := proc.Start(); err != nil {
-				log.Printf("resume: Claude Desktop launch failed: %v", err)
-				writeJSON(w, http.StatusOK, resumeResponse{
-					Launched: false,
-					Command:  responseCmd,
-					Cwd:      launchDir,
-					Error:    "desktop_launch_failed",
-				})
-				return
-			}
-			go func() { _ = proc.Wait() }()
-			writeJSON(w, http.StatusOK, resumeResponse{
-				Launched: true,
-				Terminal: opener.Name,
-				Command:  responseCmd,
-				Cwd:      launchDir,
-			})
+			launchClaudeDesktopAndRespond(
+				w, agent, rawID, launchDir,
+				opener.Name, responseCmd,
+			)
+			return
+		}
+		if !hasCLIResume {
+			writeResumeFallback(
+				w, responseCmd, launchDir, "unsupported_opener",
+			)
 			return
 		}
 
 		openerCwd := resumeLaunchCwd(
-			string(session.Agent), opener.ID, runtime.GOOS, launchDir,
+			agent, opener.ID, runtime.GOOS, launchDir,
 		)
 		proc := launchResumeInOpener(*opener, cmd, openerCwd)
 		if proc == nil {
-			writeJSON(w, http.StatusOK, resumeResponse{
-				Launched: false,
-				Command:  responseCmd,
-				Cwd:      launchDir,
-				Error:    "unsupported_opener",
-			})
+			writeResumeFallback(
+				w, responseCmd, launchDir, "unsupported_opener",
+			)
 			return
 		}
-		if err := proc.Start(); err != nil {
+		if err := startDetachedProcess(proc); err != nil {
 			log.Printf("resume: opener start failed: %v", err)
-			writeJSON(w, http.StatusOK, resumeResponse{
-				Launched: false,
-				Command:  responseCmd,
-				Cwd:      launchDir,
-				Error:    "terminal_launch_failed",
-			})
+			writeResumeFallback(
+				w, responseCmd, launchDir, "terminal_launch_failed",
+			)
 			return
 		}
-		go func() { _ = proc.Wait() }()
-		writeJSON(w, http.StatusOK, resumeResponse{
-			Launched: true,
-			Terminal: opener.Name,
-			Command:  responseCmd,
-			Cwd:      launchDir,
-		})
+		writeResumeResponse(
+			w, true, opener.Name, responseCmd, launchDir, "",
+		)
+		return
+	}
+
+	if !hasCLIResume {
+		launchClaudeDesktopAndRespond(
+			w, agent, rawID, launchDir,
+			"Claude Desktop", responseCmd,
+		)
 		return
 	}
 
@@ -259,11 +322,9 @@ func (s *Server) handleResumeSession(
 
 	if termCfg.Mode == "clipboard" {
 		// User explicitly chose clipboard-only mode.
-		writeJSON(w, http.StatusOK, resumeResponse{
-			Launched: false,
-			Command:  responseCmd,
-			Cwd:      launchDir,
-		})
+		writeResumeResponse(
+			w, false, "", responseCmd, launchDir, "",
+		)
 		return
 	}
 
@@ -271,19 +332,16 @@ func (s *Server) handleResumeSession(
 	detectCwd := launchDir
 	if termCfg.Mode == "auto" {
 		detectCwd = resumeLaunchCwd(
-			string(session.Agent), "auto", runtime.GOOS, launchDir,
+			agent, "auto", runtime.GOOS, launchDir,
 		)
 	}
 	termBin, termArgs, termName, termErr := detectTerminal(cmd, detectCwd, termCfg)
 	if termErr != nil {
 		// Can't launch — return the command for clipboard fallback.
 		log.Printf("resume: terminal detection failed: %v", termErr)
-		writeJSON(w, http.StatusOK, resumeResponse{
-			Launched: false,
-			Command:  responseCmd,
-			Cwd:      launchDir,
-			Error:    "no_terminal_found",
-		})
+		writeResumeFallback(
+			w, responseCmd, launchDir, "no_terminal_found",
+		)
 		return
 	}
 
@@ -297,26 +355,16 @@ func (s *Server) handleResumeSession(
 		proc.Dir = detectCwd
 	}
 
-	if err := proc.Start(); err != nil {
+	if err := startDetachedProcess(proc); err != nil {
 		log.Printf("resume: terminal start failed: %v", err)
-		writeJSON(w, http.StatusOK, resumeResponse{
-			Launched: false,
-			Command:  responseCmd,
-			Cwd:      launchDir,
-			Error:    "terminal_launch_failed",
-		})
+		writeResumeFallback(
+			w, responseCmd, launchDir, "terminal_launch_failed",
+		)
 		return
 	}
-
-	// Detach — don't wait for the terminal process.
-	go func() { _ = proc.Wait() }()
-
-	writeJSON(w, http.StatusOK, resumeResponse{
-		Launched: true,
-		Terminal: termName,
-		Command:  responseCmd,
-		Cwd:      launchDir,
-	})
+	writeResumeResponse(
+		w, true, termName, responseCmd, launchDir, "",
+	)
 }
 
 // shellQuote applies POSIX single-quote escaping.
@@ -703,9 +751,9 @@ func resolveResumeDir(session *db.Session) string {
 
 // resolveSessionDir determines the project directory for a session.
 // It tries the session file's embedded cwd first, then Cursor's
-// transcript-derived workspace path, then falls back to the session's
-// project field. All returned candidates must be absolute paths
-// pointing to existing directories.
+// transcript-derived workspace path, then Cowork's persisted host cwd,
+// then falls back to the session's project field. All returned
+// candidates must be absolute paths pointing to existing directories.
 func resolveSessionDir(session *db.Session) string {
 	if session.FilePath != nil {
 		if cwd := readSessionCwd(*session.FilePath); isDir(cwd) {
@@ -717,10 +765,22 @@ func resolveSessionDir(session *db.Session) string {
 			return dir
 		}
 	}
+	if session.Agent == "claude-cowork" &&
+		isClaudeCoworkHostDir(session.Cwd) {
+		return session.Cwd
+	}
 	if isDir(session.Project) {
 		return session.Project
 	}
 	return ""
+}
+
+func isClaudeCoworkHostDir(path string) bool {
+	return isDir(path) &&
+		!strings.HasPrefix(
+			filepath.ToSlash(strings.TrimSpace(path)),
+			"/sessions/",
+		)
 }
 
 // resolveCursorWorkspaceDir returns the real workspace root for a
@@ -938,13 +998,46 @@ func launchResumeDarwin(
 	}
 }
 
-// launchClaudeDesktop builds an exec.Cmd that opens a Claude Code
-// session in Claude Desktop via the claude:// URL scheme. The URL
-// format is claude://resume?session={id}&cwd={path}.
-func launchClaudeDesktop(sessionID string, cwd string) *exec.Cmd {
+// launchClaudeDesktopCode builds an exec.Cmd that opens a Claude
+// Code session in Claude Desktop via the claude:// URL scheme. The
+// URL format is claude://resume?session={id}&cwd={path}.
+func launchClaudeDesktopCode(sessionID string, cwd string) *exec.Cmd {
 	u := "claude://resume?session=" + url.QueryEscape(sessionID)
 	if cwd != "" {
 		u += "&cwd=" + url.QueryEscape(cwd)
 	}
-	return exec.Command("open", u)
+	return desktopURLCommand(runtime.GOOS, u)
+}
+
+// launchClaudeDesktopLocalSession opens an existing Claude Desktop
+// local session directly. Claude Cowork uses the private
+// claude://claude.ai/local_sessions/{id} route, which we validated
+// against the installed app bundle and manual cold-launch tests.
+func launchClaudeDesktopLocalSession(sessionID string) *exec.Cmd {
+	u := "claude://claude.ai/local_sessions/" +
+		url.PathEscape(sessionID)
+	return desktopURLCommand(runtime.GOOS, u)
+}
+
+func desktopURLLauncher(goos string) string {
+	if goos == "darwin" {
+		return "open"
+	}
+	return ""
+}
+
+func desktopURLCommand(goos string, u string) *exec.Cmd {
+	if launcher := desktopURLLauncher(goos); launcher != "" {
+		return exec.Command(launcher, u)
+	}
+	return nil
+}
+
+func launchClaudeDesktopResume(
+	agent string, sessionID string, cwd string,
+) *exec.Cmd {
+	if agent == "claude-cowork" {
+		return launchClaudeDesktopLocalSession(sessionID)
+	}
+	return launchClaudeDesktopCode(sessionID, cwd)
 }

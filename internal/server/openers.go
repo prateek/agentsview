@@ -73,10 +73,6 @@ var darwinOpenerCandidates = []openerCandidate{
 	{"xcode", "Xcode", "editor", []string{"xed"}, ""},
 	{"sublime", "Sublime Text", "editor", []string{"subl"}, ""},
 
-	// Claude Desktop — detected via app bundle. Uses claude:// URL
-	// scheme for session handoff rather than terminal launch.
-	{"claude-desktop", "Claude Desktop", "action", nil, "/Applications/Claude.app"},
-
 	// Terminals — Ghostty, iTerm2, kitty, and Terminal.app are macOS
 	// GUI apps; detect via app bundle first, fall back to PATH binary
 	// for non-default installs (e.g. Homebrew formula).
@@ -141,10 +137,52 @@ func detectOpeners() []Opener {
 			break // found one binary for this candidate
 		}
 	}
+	if opener, ok := detectClaudeDesktopOpener(
+		runtime.GOOS, os.Stat, exec.LookPath,
+	); ok {
+		result = append(result, opener)
+	}
 
 	openerCache = result
 	openerCacheAt = time.Now()
 	return result
+}
+
+func detectClaudeDesktopOpener(
+	goos string,
+	stat func(string) (os.FileInfo, error),
+	lookPath func(string) (string, error),
+) (Opener, bool) {
+	if goos != "darwin" {
+		return Opener{}, false
+	}
+	const appPath = "/Applications/Claude.app"
+	if _, err := stat(appPath); err != nil {
+		return Opener{}, false
+	}
+	if ok, _ := supportsDesktopURLLaunch(goos, lookPath); !ok {
+		return Opener{}, false
+	}
+	return Opener{
+		ID:   "claude-desktop",
+		Name: "Claude Desktop",
+		Kind: "action",
+		Bin:  appPath,
+	}, true
+}
+
+func supportsDesktopURLLaunch(
+	goos string,
+	lookPath func(string) (string, error),
+) (bool, string) {
+	launcher := desktopURLLauncher(goos)
+	if launcher == "" {
+		return false, ""
+	}
+	if _, err := lookPath(launcher); err != nil {
+		return false, ""
+	}
+	return true, launcher
 }
 
 func (s *Server) handleListOpeners(

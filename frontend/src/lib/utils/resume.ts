@@ -1,22 +1,15 @@
 /** Agent types that support CLI session resumption. */
-const RESUME_AGENTS: Record<
-  string,
-  (sessionId: string) => string
-> = Object.create(null);
-RESUME_AGENTS["claude"] = (id) =>
-  `claude --resume ${shellQuote(id)}`;
-RESUME_AGENTS["codex"] = (id) =>
-  `codex resume ${shellQuote(id)}`;
-RESUME_AGENTS["copilot"] = (id) =>
-  `copilot --resume=${shellQuote(id)}`;
-RESUME_AGENTS["cursor"] = (id) =>
-  `cursor agent --resume ${shellQuote(id)}`;
-RESUME_AGENTS["gemini"] = (id) =>
-  `gemini --resume ${shellQuote(id)}`;
-RESUME_AGENTS["opencode"] = (id) =>
-  `opencode --session ${shellQuote(id)}`;
-RESUME_AGENTS["amp"] = (id) =>
-  `amp --resume ${shellQuote(id)}`;
+const RESUME_AGENTS: Record<string, (sessionId: string) => string> = {
+  claude: (id) => `claude --resume ${shellQuote(id)}`,
+  codex: (id) => `codex resume ${shellQuote(id)}`,
+  copilot: (id) => `copilot --resume=${shellQuote(id)}`,
+  cursor: (id) => `cursor agent --resume ${shellQuote(id)}`,
+  gemini: (id) => `gemini --resume ${shellQuote(id)}`,
+  opencode: (id) => `opencode --session ${shellQuote(id)}`,
+  amp: (id) => `amp --resume ${shellQuote(id)}`,
+};
+
+const DESKTOP_RESUME_AGENTS = new Set(["claude", "claude-cowork"]);
 
 /**
  * Agents whose resume commands require server-resolved parameters
@@ -68,9 +61,23 @@ export function stripIdPrefix(id: string, agent?: string): string {
 }
 
 /**
- * Returns true if the given agent supports CLI session resumption.
+ * Returns true if the given agent supports session resumption via
+ * either a terminal command or Claude Desktop.
  */
 export function supportsResume(agent: string): boolean {
+  return supportsTerminalResume(agent) || supportsDesktopResume(agent);
+}
+
+/** Returns true if the given agent can resume via Claude Desktop. */
+export function supportsDesktopResume(agent: string): boolean {
+  return DESKTOP_RESUME_AGENTS.has(agent);
+}
+
+/**
+ * Returns true if the given agent supports launching a terminal
+ * resume flow, even when the exact command must come from the server.
+ */
+export function supportsTerminalResume(agent: string): boolean {
   return Object.hasOwn(RESUME_AGENTS, agent);
 }
 
@@ -95,13 +102,28 @@ export function buildResumeCommand(
   let cmd = builder(rawId);
 
   if (agent === "claude" && flags) {
-    if (flags.skipPermissions)
-      cmd += " --dangerously-skip-permissions";
+    if (flags.skipPermissions) cmd += " --dangerously-skip-permissions";
     if (flags.forkSession) cmd += " --fork-session";
     if (flags.print) cmd += " --print";
   }
 
   return cmd;
+}
+
+/**
+ * Prefer a backend-built command when available, otherwise fall back
+ * to the local CLI builder for agents whose resume command can be
+ * derived client-side.
+ */
+export function resolveResumeCommand(
+  agent: string,
+  sessionId: string,
+  response: ResumeCommandResponse | null | undefined,
+): string | null {
+  return (
+    formatResumeResponseCommand(agent, response) ||
+    buildResumeCommand(agent, sessionId)
+  );
 }
 
 /**

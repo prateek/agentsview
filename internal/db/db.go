@@ -281,6 +281,14 @@ func (db *DB) migrateColumns() error {
 			"ALTER TABLE sessions ADD COLUMN display_name TEXT",
 		},
 		{
+			"sessions", "source_display_name",
+			"ALTER TABLE sessions ADD COLUMN source_display_name TEXT",
+		},
+		{
+			"sessions", "source_metadata_mtime",
+			"ALTER TABLE sessions ADD COLUMN source_metadata_mtime INTEGER NOT NULL DEFAULT 0",
+		},
+		{
 			"sessions", "deleted_at",
 			"ALTER TABLE sessions ADD COLUMN deleted_at TEXT",
 		},

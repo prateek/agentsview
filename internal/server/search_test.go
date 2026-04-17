@@ -44,7 +44,9 @@ func TestPrepareFTSQuery(t *testing.T) {
 	}{
 		{name: "single word unchanged", raw: "login", want: "login"},
 		{name: "multi-word gets quoted", raw: "fix bug", want: `"fix bug"`},
+		{name: "hyphenated term gets quoted", raw: "qa-check-1", want: `"qa-check-1"`},
 		{name: "already quoted unchanged", raw: `"fix bug"`, want: `"fix bug"`},
+		{name: "already quoted hyphen unchanged", raw: `"qa-check-1"`, want: `"qa-check-1"`},
 		{name: "empty string unchanged", raw: "", want: ""},
 		{name: "three words quoted", raw: "a b c", want: `"a b c"`},
 	}
@@ -109,5 +111,29 @@ func TestHandleSearchSortParam(t *testing.T) {
 					spy.filter.Sort, tt.wantSort)
 			}
 		})
+	}
+}
+
+func TestHandleSearchQuotesHyphenatedQuery(t *testing.T) {
+	t.Parallel()
+	spy := &searchSpy{}
+	srv := &Server{
+		cfg: config.Config{Host: "127.0.0.1"},
+		db:  spy,
+	}
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/search?q=qa-check-1", nil,
+	)
+	w := httptest.NewRecorder()
+	srv.handleSearch(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	if spy.filter.Query != `"qa-check-1"` {
+		t.Fatalf(
+			"SearchFilter.Query = %q, want %q",
+			spy.filter.Query, `"qa-check-1"`,
+		)
 	}
 }

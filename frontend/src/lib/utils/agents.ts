@@ -6,6 +6,11 @@ export interface AgentMeta {
 
 export const KNOWN_AGENTS: readonly AgentMeta[] = [
   { name: "claude", color: "var(--accent-blue)" },
+  {
+    name: "claude-cowork",
+    color: "var(--accent-blue)",
+    label: "Claude Cowork",
+  },
   { name: "codex", color: "var(--accent-green)" },
   { name: "copilot", color: "var(--accent-amber)" },
   { name: "gemini", color: "var(--accent-rose)" },

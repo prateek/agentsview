@@ -2,6 +2,7 @@ package parser
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -11,6 +12,7 @@ type AgentType string
 
 const (
 	AgentClaude        AgentType = "claude"
+	AgentClaudeCowork  AgentType = "claude-cowork"
 	AgentCodex         AgentType = "codex"
 	AgentCopilot       AgentType = "copilot"
 	AgentGemini        AgentType = "gemini"
@@ -70,6 +72,31 @@ var Registry = []AgentDef{
 		FileBased:      true,
 		DiscoverFunc:   DiscoverClaudeProjects,
 		FindSourceFunc: FindClaudeSourceFile,
+	},
+	{
+		// `local-agent-mode-sessions` is the active Cowork tree.
+		// Fresh Desktop Code sessions now write Desktop metadata to
+		// `claude-code-sessions/.../local_*.json` and bridge back to
+		// the standard `~/.claude/projects/.../<cliSessionId>.jsonl`
+		// transcript store, so they no longer belong to this tree.
+		// It can still contain legacy Claude Desktop Code sessions
+		// from before the v1.1.4498 rename. We only index sessions
+		// that still look Cowork-shaped here (virtual `/sessions/...`
+		// cwd or selected host folders/files), so old
+		// Code-tab sessions in this tree remain unsupported instead
+		// of being mislabeled as Cowork.
+		// Upstream refs:
+		// https://github.com/anthropics/claude-code/issues/29373
+		// https://github.com/anthropics/claude-code/issues/47179
+		Type:           AgentClaudeCowork,
+		DisplayName:    "Claude Cowork",
+		EnvVar:         "CLAUDE_COWORK_SESSIONS_DIR",
+		ConfigKey:      "claude_cowork_dirs",
+		DefaultDirs:    claudeDesktopDefaults("local-agent-mode-sessions"),
+		IDPrefix:       "claude-cowork:",
+		FileBased:      true,
+		DiscoverFunc:   DiscoverClaudeCoworkSessions,
+		FindSourceFunc: FindClaudeDesktopSourceFile,
 	},
 	{
 		Type:           AgentCodex,
@@ -315,6 +342,27 @@ var Registry = []AgentDef{
 	},
 }
 
+func claudeDesktopDefaults(tree string) []string {
+	if runtime.GOOS != "darwin" {
+		// Cowork discovery is only auto-configured on macOS for now.
+		// Other platforms can still opt in via env/config once we have
+		// real installs to validate against.
+		return nil
+	}
+	return []string{
+		// macOS: Claude Desktop stores Cowork session state in
+		// ~/Library/Application Support/Claude/<tree>. Claude
+		// Desktop Code moved to `claude-code-sessions` in Desktop
+		// v1.1.4498 and keeps its transcript in `~/.claude/projects`
+		// keyed by `cliSessionId`, so this build intentionally
+		// indexes only the Cowork tree under
+		// `local-agent-mode-sessions`. See:
+		// https://github.com/anthropics/claude-code/issues/29373
+		// https://github.com/anthropics/claude-code/issues/47179
+		"Library/Application Support/Claude/" + tree,
+	}
+}
+
 // NonFileBackedAgents returns agent types where FileBased is false.
 func NonFileBackedAgents() []AgentType {
 	var agents []AgentType
@@ -400,25 +448,26 @@ type FileInfo struct {
 
 // ParsedSession holds session metadata extracted from a JSONL file.
 type ParsedSession struct {
-	ID               string
-	Project          string
-	Machine          string
-	Agent            AgentType
-	ParentSessionID  string
-	RelationshipType RelationshipType
-	Cwd              string
-	GitBranch        string
-	SourceSessionID  string
-	SourceVersion    string
-	MalformedLines   int
-	IsTruncated      bool
-	FirstMessage     string
-	DisplayName      string
-	StartedAt        time.Time
-	EndedAt          time.Time
-	MessageCount     int
-	UserMessageCount int
-	File             FileInfo
+	ID                  string
+	Project             string
+	Machine             string
+	Agent               AgentType
+	ParentSessionID     string
+	RelationshipType    RelationshipType
+	Cwd                 string
+	GitBranch           string
+	SourceSessionID     string
+	SourceVersion       string
+	MalformedLines      int
+	IsTruncated         bool
+	FirstMessage        string
+	DisplayName         string
+	StartedAt           time.Time
+	EndedAt             time.Time
+	MessageCount        int
+	UserMessageCount    int
+	SourceMetadataMtime int64
+	File                FileInfo
 
 	TotalOutputTokens    int
 	PeakContextTokens    int

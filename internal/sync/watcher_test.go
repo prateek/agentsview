@@ -8,6 +8,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
+	"github.com/stretchr/testify/require"
 )
 
 // startTestWatcherNoCleanup sets up a watcher without registering
@@ -212,6 +215,76 @@ func TestWatcherIgnoresNonWriteCreate(t *testing.T) {
 		t.Fatal("onChange called for chmod event, expected it to be ignored")
 	case <-time.After(100 * time.Millisecond):
 		// Success
+	}
+}
+
+func TestWatcherHandlesRenameEvent(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		mockTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	)
+	pathsCh := make(chan []string, 1)
+	w, dir := startTestWatcherNoCleanup(t, func(paths []string) {
+		pathsCh <- paths
+	}, time.Hour)
+	t.Cleanup(func() { w.Stop() })
+	w.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return mockTime
+	}
+
+	path := filepath.Join(dir, "local_123.json")
+	w.handleEvent(fsnotify.Event{
+		Name: path,
+		Op:   fsnotify.Rename,
+	})
+	mu.Lock()
+	mockTime = mockTime.Add(time.Hour)
+	mu.Unlock()
+	w.flush()
+
+	select {
+	case paths := <-pathsCh:
+		require.Len(t, paths, 1)
+		require.Equal(t, path, paths[0])
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for rename event")
+	}
+}
+
+func TestWatcherHandlesMetadataTempRename(t *testing.T) {
+	var (
+		mu       sync.Mutex
+		mockTime = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	)
+	pathsCh := make(chan []string, 1)
+	w, dir := startTestWatcherNoCleanup(t, func(paths []string) {
+		pathsCh <- paths
+	}, time.Hour)
+	t.Cleanup(func() { w.Stop() })
+	w.now = func() time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return mockTime
+	}
+
+	tmpPath := filepath.Join(dir, "local_123.json.tmp")
+	finalPath := filepath.Join(dir, "local_123.json")
+	w.handleEvent(fsnotify.Event{
+		Name: tmpPath,
+		Op:   fsnotify.Rename,
+	})
+	mu.Lock()
+	mockTime = mockTime.Add(time.Hour)
+	mu.Unlock()
+	w.flush()
+
+	select {
+	case paths := <-pathsCh:
+		require.Contains(t, paths, finalPath)
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for temp rename event")
 	}
 }
 

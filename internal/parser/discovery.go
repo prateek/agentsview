@@ -125,6 +125,101 @@ func DiscoverClaudeProjects(projectsDir string) []DiscoveredFile {
 	return files
 }
 
+func DiscoverClaudeCoworkSessions(root string) []DiscoveredFile {
+	return discoverClaudeDesktopSessions(root, AgentClaudeCowork)
+}
+
+func ClaudeDesktopProjectName(account, org string) string {
+	return account + "_" + org
+}
+
+func ClaudeDesktopAuditPath(root, account, org, stem string) string {
+	return filepath.Join(root, account, org, stem, "audit.jsonl")
+}
+
+// discoverClaudeDesktopSessions treats each Desktop session as a
+// metadata file (`local_<uuid>.json`) plus a sibling transcript
+// directory (`local_<uuid>/audit.jsonl`). Cowork still uses the
+// `local-agent-mode-sessions` tree. We only index completed
+// `local_*.json` metadata files here, not `.json.tmp` leftovers;
+// the Windows MSIX EXDEV bug can strand temporary files, and
+// treating them as complete sessions would surface unfinished
+// writes.
+// https://github.com/anthropics/claude-code/issues/29373
+// https://github.com/anthropics/claude-code/issues/47179
+// https://github.com/anthropics/claude-code/issues/48362
+func discoverClaudeDesktopSessions(
+	root string, agent AgentType,
+) []DiscoveredFile {
+	accounts, err := os.ReadDir(root)
+	if err != nil {
+		return nil
+	}
+
+	var files []DiscoveredFile
+	for _, account := range accounts {
+		if !isDirOrSymlink(account, root) {
+			continue
+		}
+
+		accountDir := filepath.Join(root, account.Name())
+		orgs, err := os.ReadDir(accountDir)
+		if err != nil {
+			continue
+		}
+		for _, org := range orgs {
+			if !isDirOrSymlink(org, accountDir) {
+				continue
+			}
+
+			orgDir := filepath.Join(accountDir, org.Name())
+			entries, err := os.ReadDir(orgDir)
+			if err != nil {
+				continue
+			}
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !strings.HasPrefix(name, "local_") ||
+					!strings.HasSuffix(name, ".json") {
+					continue
+				}
+
+				stem := strings.TrimSuffix(name, ".json")
+				auditPath := ClaudeDesktopAuditPath(
+					root, account.Name(), org.Name(), stem,
+				)
+				if _, err := os.Stat(auditPath); err != nil {
+					continue
+				}
+				if agent == AgentClaudeCowork {
+					isCowork, err := IsClaudeCoworkAuditPath(
+						auditPath,
+					)
+					if err == nil && !isCowork {
+						continue
+					}
+				}
+
+				files = append(files, DiscoveredFile{
+					Path: auditPath,
+					Project: ClaudeDesktopProjectName(
+						account.Name(), org.Name(),
+					),
+					Agent: agent,
+				})
+			}
+		}
+	}
+
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Path < files[j].Path
+	})
+	return files
+}
+
 // DiscoverCodexSessions finds all JSONL files under the Codex
 // sessions dir (year/month/day structure).
 func DiscoverCodexSessions(sessionsDir string) []DiscoveredFile {
@@ -212,6 +307,53 @@ func FindClaudeSourceFile(
 		}
 	}
 
+	return ""
+}
+
+func FindClaudeDesktopSourceFile(root, sessionID string) string {
+	if sessionID == "" ||
+		strings.Contains(sessionID, "..") ||
+		strings.ContainsAny(sessionID, `/\`) ||
+		strings.IndexFunc(sessionID, unicode.IsSpace) >= 0 {
+		return ""
+	}
+
+	target := sessionID
+	if !strings.HasPrefix(target, "local_") {
+		target = "local_" + target
+	}
+
+	accounts, err := os.ReadDir(root)
+	if err != nil {
+		return ""
+	}
+	for _, account := range accounts {
+		if !isDirOrSymlink(account, root) {
+			continue
+		}
+		accountDir := filepath.Join(root, account.Name())
+		orgs, err := os.ReadDir(accountDir)
+		if err != nil {
+			continue
+		}
+		for _, org := range orgs {
+			if !isDirOrSymlink(org, accountDir) {
+				continue
+			}
+			auditPath := filepath.Join(
+				accountDir, org.Name(), target, "audit.jsonl",
+			)
+			if _, err := os.Stat(auditPath); err == nil {
+				isCowork, err := IsClaudeCoworkAuditPath(
+					auditPath,
+				)
+				if err == nil && !isCowork {
+					continue
+				}
+				return auditPath
+			}
+		}
+	}
 	return ""
 }
 

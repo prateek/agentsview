@@ -138,7 +138,7 @@ func (w *Watcher) loop() {
 // handleEvent processes a single fsnotify event, auto-watching
 // newly created directories and recording pending changes.
 func (w *Watcher) handleEvent(event fsnotify.Event) {
-	if event.Op&(fsnotify.Write|fsnotify.Create) == 0 {
+	if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Rename) == 0 {
 		return
 	}
 
@@ -149,8 +149,17 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		}
 	}
 
+	paths := []string{event.Name}
+	if event.Op&fsnotify.Rename != 0 &&
+		strings.HasSuffix(event.Name, ".json.tmp") {
+		paths = append(paths, strings.TrimSuffix(event.Name, ".tmp"))
+	}
+
 	w.mu.Lock()
-	w.pending[event.Name] = w.now()
+	now := w.now()
+	for _, path := range paths {
+		w.pending[path] = now
+	}
 	w.mu.Unlock()
 }
 

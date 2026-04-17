@@ -1,21 +1,22 @@
-import {
-  describe,
-  it,
-  expect,
-  vi,
-  beforeEach,
-  afterEach,
-} from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ui } from "../stores/ui.svelte.js";
 import { sessions } from "../stores/sessions.svelte.js";
 import { starred } from "../stores/starred.svelte.js";
 import { router } from "../stores/router.svelte.js";
 import { registerShortcuts } from "./keyboard.js";
+import { resumeSession } from "../api/client.js";
 
-function fireKey(
-  key: string,
-  opts: Partial<KeyboardEventInit> = {},
-) {
+vi.mock("../api/client.js", () => ({
+  resumeSession: vi.fn(),
+  getExportUrl: vi.fn(() => "/export"),
+  listStarred: vi.fn().mockResolvedValue({ session_ids: [] }),
+}));
+
+vi.mock("./clipboard.js", () => ({
+  copyToClipboard: vi.fn(),
+}));
+
+function fireKey(key: string, opts: Partial<KeyboardEventInit> = {}) {
   const event = new KeyboardEvent("keydown", {
     key,
     bubbles: true,
@@ -268,10 +269,7 @@ describe("registerShortcuts", () => {
     });
 
     it("should be a no-op when filtered list is empty", () => {
-      sessions.sessions = [
-        makeSession("s1"),
-        makeSession("s2"),
-      ];
+      sessions.sessions = [makeSession("s1"), makeSession("s2")];
       sessions.activeSessionId = "s1";
       // No sessions are starred, so filtered list will be empty
       starred.filterOnly = true;
@@ -281,6 +279,30 @@ describe("registerShortcuts", () => {
       // Should remain unchanged since filtered list is empty
       expect(sessions.activeSessionId).toBe("s1");
     });
+  });
+
+  it("does not copy a resume command for cowork sessions", () => {
+    sessions.activeSessionId = "claude-cowork:local_123";
+    sessions.sessions = [
+      {
+        id: "claude-cowork:local_123",
+        project: "proj",
+        machine: "local",
+        agent: "claude-cowork",
+        first_message: null,
+        started_at: null,
+        ended_at: null,
+        message_count: 1,
+        user_message_count: 1,
+        total_output_tokens: 0,
+        peak_context_tokens: 0,
+        created_at: "2024-01-01T00:00:00Z",
+      },
+    ];
+
+    fireKey("c");
+
+    expect(resumeSession).not.toHaveBeenCalled();
   });
 
   describe("b shortcut (toggle sidebar)", () => {

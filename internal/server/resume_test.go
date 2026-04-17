@@ -2,11 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wesm/agentsview/internal/db"
 )
@@ -130,7 +135,7 @@ func TestDetectTerminalLinux_EnvTerminalWithArgs(t *testing.T) {
 	}
 }
 
-func TestLaunchClaudeDesktop(t *testing.T) {
+func TestLaunchClaudeDesktopCode(t *testing.T) {
 	tests := []struct {
 		name      string
 		sessionID string
@@ -159,19 +164,147 @@ func TestLaunchClaudeDesktop(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cmd := launchClaudeDesktop(tt.sessionID, tt.cwd)
+			cmd := launchClaudeDesktopCode(
+				tt.sessionID, tt.cwd,
+			)
+			if runtime.GOOS != "darwin" {
+				if cmd != nil {
+					t.Fatalf("launchClaudeDesktopCode() = %v, want nil on %s", cmd, runtime.GOOS)
+				}
+				return
+			}
 			if cmd.Path == "" {
 				t.Fatal("expected non-empty command path")
 			}
-			// The command should be "open <url>".
 			args := cmd.Args
-			if len(args) != 2 {
-				t.Fatalf("args = %v, want 2 elements", args)
+			if len(args) == 0 {
+				t.Fatalf("args = %v, want non-empty args", args)
 			}
-			if args[1] != tt.wantArg {
-				t.Errorf("url = %q, want %q", args[1], tt.wantArg)
+			if got := args[len(args)-1]; got != tt.wantArg {
+				t.Errorf("url = %q, want %q", got, tt.wantArg)
 			}
 		})
+	}
+}
+
+func TestLaunchClaudeDesktopLocalSession(t *testing.T) {
+	tests := []struct {
+		name      string
+		sessionID string
+		wantArg   string
+	}{
+		{
+			name:      "local session id",
+			sessionID: "local_8d81b324-060a-460c-bd68-ab042f55fc12",
+			wantArg:   "claude://claude.ai/local_sessions/local_8d81b324-060a-460c-bd68-ab042f55fc12",
+		},
+		{
+			name:      "preserves session id verbatim",
+			sessionID: "local_deadbeef-dead-beef-dead-beefdeadbeef",
+			wantArg:   "claude://claude.ai/local_sessions/local_deadbeef-dead-beef-dead-beefdeadbeef",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := launchClaudeDesktopLocalSession(tt.sessionID)
+			if runtime.GOOS != "darwin" {
+				if cmd != nil {
+					t.Fatalf("launchClaudeDesktopLocalSession() = %v, want nil on %s", cmd, runtime.GOOS)
+				}
+				return
+			}
+			if cmd == nil || cmd.Path == "" {
+				t.Fatal("expected non-empty command path")
+			}
+			args := cmd.Args
+			if len(args) == 0 {
+				t.Fatalf("args = %v, want non-empty args", args)
+			}
+			if got := args[len(args)-1]; got != tt.wantArg {
+				t.Errorf("url = %q, want %q", got, tt.wantArg)
+			}
+		})
+	}
+}
+
+func TestDesktopURLCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		goos     string
+		url      string
+		wantPath string
+		wantArgs []string
+	}{
+		{
+			name:     "darwin",
+			goos:     "darwin",
+			url:      "claude://resume?session=abc-123",
+			wantPath: "open",
+			wantArgs: []string{"open", "claude://resume?session=abc-123"},
+		},
+		{
+			name: "unsupported OS",
+			goos: "linux",
+			url:  "claude://resume?session=abc-123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := desktopURLCommand(tt.goos, tt.url)
+			if tt.wantPath == "" {
+				if cmd != nil {
+					t.Fatalf("desktopURLCommand() = %v, want nil", cmd)
+				}
+				return
+			}
+			if cmd == nil {
+				t.Fatal("expected command, got nil")
+			}
+			if got := filepath.Base(cmd.Path); got != tt.wantPath {
+				t.Fatalf("path = %q, want %q", got, tt.wantPath)
+			}
+			if !reflect.DeepEqual(cmd.Args, tt.wantArgs) {
+				t.Fatalf("args = %#v, want %#v", cmd.Args, tt.wantArgs)
+			}
+		})
+	}
+}
+
+func TestLaunchClaudeDesktopAndRespondFallsBackOnLaunchError(t *testing.T) {
+	t.Cleanup(func() {
+		runDesktopURLProcess = func(proc *exec.Cmd) error {
+			return proc.Run()
+		}
+	})
+
+	runDesktopURLProcess = func(proc *exec.Cmd) error {
+		return exec.ErrNotFound
+	}
+
+	w := httptest.NewRecorder()
+	launchClaudeDesktopAndRespond(
+		w,
+		"claude-cowork",
+		"local_123",
+		"",
+		"Claude Desktop",
+		"",
+	)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var resp resumeResponse
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Launched {
+		t.Fatalf("launched = true, want false")
+	}
+	if resp.Error != "desktop_launch_failed" {
+		t.Fatalf("error = %q, want %q", resp.Error, "desktop_launch_failed")
 	}
 }
 
@@ -200,6 +333,140 @@ func TestReadSessionCwd_LargeLine(t *testing.T) {
 		t.Errorf("readSessionCwd() = %q, want %q", got, cwdDir)
 	}
 }
+
+func TestSupportsDesktopURLLaunch(t *testing.T) {
+	tests := []struct {
+		name    string
+		goos    string
+		lookup  func(string) (string, error)
+		want    bool
+		wantBin string
+	}{
+		{
+			name: "darwin uses open",
+			goos: "darwin",
+			lookup: func(bin string) (string, error) {
+				if bin == "open" {
+					return "/usr/bin/open", nil
+				}
+				return "", exec.ErrNotFound
+			},
+			want:    true,
+			wantBin: "open",
+		},
+		{
+			name: "linux returns false",
+			goos: "linux",
+			lookup: func(bin string) (string, error) {
+				return "", nil
+			},
+			want: false,
+		},
+		{
+			name: "unsupported OS returns false",
+			goos: "plan9",
+			lookup: func(bin string) (string, error) {
+				return "", nil
+			},
+			want: false,
+		},
+		{
+			name: "missing launcher returns false",
+			goos: "linux",
+			lookup: func(bin string) (string, error) {
+				return "", exec.ErrNotFound
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, bin := supportsDesktopURLLaunch(tt.goos, tt.lookup)
+			if got != tt.want {
+				t.Fatalf("supportsDesktopURLLaunch() = %v, want %v", got, tt.want)
+			}
+			if bin != tt.wantBin {
+				t.Fatalf("supportsDesktopURLLaunch() bin = %q, want %q", bin, tt.wantBin)
+			}
+		})
+	}
+}
+
+func TestDetectClaudeDesktopOpener(t *testing.T) {
+	tests := []struct {
+		name    string
+		goos    string
+		statErr error
+		lookup  func(string) (string, error)
+		want    bool
+		wantBin string
+	}{
+		{
+			name:    "darwin app bundle present",
+			goos:    "darwin",
+			statErr: nil,
+			lookup: func(bin string) (string, error) {
+				if bin == "open" {
+					return "/usr/bin/open", nil
+				}
+				return "", exec.ErrNotFound
+			},
+			want:    true,
+			wantBin: "/Applications/Claude.app",
+		},
+		{
+			name:    "darwin missing app bundle",
+			goos:    "darwin",
+			statErr: os.ErrNotExist,
+			lookup: func(bin string) (string, error) {
+				return "/usr/bin/open", nil
+			},
+			want: false,
+		},
+		{
+			name: "linux does not advertise opener row",
+			goos: "linux",
+			lookup: func(bin string) (string, error) {
+				if bin == "xdg-open" {
+					return "/usr/bin/xdg-open", nil
+				}
+				return "", exec.ErrNotFound
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := detectClaudeDesktopOpener(
+				tt.goos,
+				func(path string) (os.FileInfo, error) {
+					if tt.statErr != nil {
+						return nil, tt.statErr
+					}
+					return fakeDirInfo{}, nil
+				},
+				tt.lookup,
+			)
+			if ok != tt.want {
+				t.Fatalf("ok = %v, want %v", ok, tt.want)
+			}
+			if got.Bin != tt.wantBin {
+				t.Fatalf("bin = %q, want %q", got.Bin, tt.wantBin)
+			}
+		})
+	}
+}
+
+type fakeDirInfo struct{}
+
+func (fakeDirInfo) Name() string       { return "Claude.app" }
+func (fakeDirInfo) Size() int64        { return 0 }
+func (fakeDirInfo) Mode() os.FileMode  { return os.ModeDir }
+func (fakeDirInfo) ModTime() time.Time { return time.Time{} }
+func (fakeDirInfo) IsDir() bool        { return true }
+func (fakeDirInfo) Sys() any           { return nil }
 
 func TestReadSessionCwd_CopilotFormat(t *testing.T) {
 	dir := t.TempDir()

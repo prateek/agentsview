@@ -343,6 +343,17 @@ func (e *Engine) classifyOnePath(
 		}
 	}
 
+	for _, coworkDir := range e.agentDirs[parser.AgentClaudeCowork] {
+		if coworkDir == "" {
+			continue
+		}
+		if df, ok := classifyClaudeDesktopPath(
+			coworkDir, path, parser.AgentClaudeCowork,
+		); ok {
+			return df, true
+		}
+	}
+
 	// Codex: <codexDir>/<year>/<month>/<day>/<file>.jsonl
 	for _, codexDir := range e.agentDirs[parser.AgentCodex] {
 		if codexDir == "" {
@@ -726,6 +737,62 @@ func (e *Engine) classifyOnePath(
 	return parser.DiscoveredFile{}, false
 }
 
+func classifyClaudeDesktopPath(
+	root, path string, agent parser.AgentType,
+) (parser.DiscoveredFile, bool) {
+	sep := string(filepath.Separator)
+	rel, ok := isUnder(root, path)
+	if !ok {
+		return parser.DiscoveredFile{}, false
+	}
+
+	parts := strings.Split(rel, sep)
+	switch {
+	case len(parts) == 3 &&
+		strings.HasPrefix(parts[2], "local_") &&
+		strings.HasSuffix(parts[2], ".json"):
+		stem := strings.TrimSuffix(parts[2], ".json")
+		auditPath := parser.ClaudeDesktopAuditPath(
+			root, parts[0], parts[1], stem,
+		)
+		if _, err := os.Stat(auditPath); err != nil {
+			return parser.DiscoveredFile{}, false
+		}
+		if agent == parser.AgentClaudeCowork {
+			isCowork, err := parser.IsClaudeCoworkAuditPath(
+				auditPath,
+			)
+			if err == nil && !isCowork {
+				return parser.DiscoveredFile{}, false
+			}
+		}
+		return parser.DiscoveredFile{
+			Path:    auditPath,
+			Project: parser.ClaudeDesktopProjectName(parts[0], parts[1]),
+			Agent:   agent,
+		}, true
+	case len(parts) == 4 &&
+		strings.HasPrefix(parts[2], "local_") &&
+		parts[3] == "audit.jsonl":
+		if _, err := os.Stat(parser.ClaudeDesktopMetadataPath(path)); err != nil {
+			return parser.DiscoveredFile{}, false
+		}
+		if agent == parser.AgentClaudeCowork {
+			isCowork, err := parser.IsClaudeCoworkAuditPath(path)
+			if err == nil && !isCowork {
+				return parser.DiscoveredFile{}, false
+			}
+		}
+		return parser.DiscoveredFile{
+			Path:    path,
+			Project: parser.ClaudeDesktopProjectName(parts[0], parts[1]),
+			Agent:   agent,
+		}, true
+	default:
+		return parser.DiscoveredFile{}, false
+	}
+}
+
 // vscodeJSONLSiblingExists returns true when path is a .json
 // file and a .jsonl sibling exists for the same UUID. This
 // mirrors the dedup logic in DiscoverVSCodeCopilotSessions.
@@ -1086,9 +1153,10 @@ func (e *Engine) syncAllLocked(
 
 	if verbose {
 		log.Printf(
-			"discovered %d files (%d claude, %d codex, %d copilot, %d gemini, %d cursor, %d amp, %d zencoder, %d iflow, %d vscode-copilot, %d pi) in %s",
+			"discovered %d files (%d claude, %d claude-cowork, %d codex, %d copilot, %d gemini, %d cursor, %d amp, %d zencoder, %d iflow, %d vscode-copilot, %d pi) in %s",
 			len(all),
 			counts[parser.AgentClaude],
+			counts[parser.AgentClaudeCowork],
 			counts[parser.AgentCodex],
 			counts[parser.AgentCopilot],
 			counts[parser.AgentGemini],
@@ -1273,16 +1341,32 @@ func filterFilesByMtime(
 	cutoffNs := cutoff.UnixNano()
 	out := files[:0]
 	for _, f := range files {
-		info, err := os.Stat(f.Path)
+		sourceMtime, err := discoveredFileSourceMtime(f)
 		if err != nil {
 			out = append(out, f)
 			continue
 		}
-		if info.ModTime().UnixNano() >= cutoffNs {
+		if sourceMtime >= cutoffNs {
 			out = append(out, f)
 		}
 	}
 	return out
+}
+
+func discoveredFileSourceMtime(
+	file parser.DiscoveredFile,
+) (int64, error) {
+	info, err := os.Stat(file.Path)
+	if err != nil {
+		return 0, err
+	}
+	if file.Agent == parser.AgentClaudeCowork {
+		return parser.ClaudeDesktopSourceMtimeFromInfo(
+			file.Path,
+			info,
+		)
+	}
+	return info.ModTime().UnixNano(), nil
 }
 
 // syncOpenCode syncs sessions from OpenCode SQLite databases.
@@ -1562,8 +1646,10 @@ func (e *Engine) processFile(
 		}
 	}
 
-	// Capture mtime once from the initial stat so all
-	// downstream cache operations use a consistent value.
+	// Capture a stable skip-cache token once from the initial
+	// stat so downstream cache operations compare against the
+	// same source state. Most agents use the file mtime
+	// directly; Cowork folds in companion-metadata state.
 	mtime := info.ModTime().UnixNano()
 	if file.Agent == parser.AgentOpenHands {
 		snapshot, err := parser.OpenHandsSnapshot(file.Path)
@@ -1571,6 +1657,14 @@ func (e *Engine) processFile(
 			return processResult{err: err}
 		}
 		mtime = snapshot.Mtime
+	}
+	if file.Agent == parser.AgentClaudeCowork {
+		if sourceMtime, err := parser.ClaudeDesktopSourceMtimeFromInfo(
+			file.Path,
+			info,
+		); err == nil {
+			mtime = sourceMtime
+		}
 	}
 
 	// Skip files cached from a previous sync (parse errors
@@ -1591,6 +1685,8 @@ func (e *Engine) processFile(
 	switch file.Agent {
 	case parser.AgentClaude:
 		res = e.processClaude(file, info)
+	case parser.AgentClaudeCowork:
+		res = e.processClaudeCowork(file, info)
 	case parser.AgentCodex:
 		res = e.processCodex(file, info)
 	case parser.AgentCopilot:
@@ -1637,7 +1733,7 @@ func (e *Engine) processFile(
 }
 
 // cacheSkip records a file so it won't be retried until
-// its mtime changes.
+// its skip token changes.
 func (e *Engine) cacheSkip(path string, mtime int64) {
 	e.skipMu.Lock()
 	e.skipCache[path] = mtime
@@ -1744,6 +1840,76 @@ func (e *Engine) shouldSkipByPath(
 	return true
 }
 
+func isClaudeCoworkVirtualCwd(cwd string) bool {
+	return strings.HasPrefix(
+		filepath.ToSlash(strings.TrimSpace(cwd)),
+		"/sessions/",
+	)
+}
+
+func hasClaudeCoworkHostCwd(cwd string) bool {
+	cwd = strings.TrimSpace(cwd)
+	return cwd != "" && !isClaudeCoworkVirtualCwd(cwd)
+}
+
+func claudeCoworkProjectNeedsParse(sess *db.Session) bool {
+	return sess == nil ||
+		sess.Project == "" ||
+		parser.NeedsProjectReparse(sess.Project)
+}
+
+func preserveClaudeCoworkLocation(
+	parsed *parser.ParsedSession,
+	existing *db.Session,
+	fallbackProject string,
+) {
+	if parsed == nil || existing == nil ||
+		!hasClaudeCoworkHostCwd(existing.Cwd) {
+		return
+	}
+
+	if parsed.Cwd == "" ||
+		isClaudeCoworkVirtualCwd(parsed.Cwd) {
+		parsed.Cwd = existing.Cwd
+	}
+	if parsed.Project == "" ||
+		parsed.Project == fallbackProject ||
+		parser.NeedsProjectReparse(parsed.Project) {
+		parsed.Project = existing.Project
+	}
+}
+
+func (e *Engine) shouldSkipClaudeCowork(
+	sessionID string,
+	info os.FileInfo,
+	sourceMtime int64,
+	metadataMtime int64,
+) (*db.Session, bool, bool, int64) {
+	fullID := e.idPrefix + sessionID
+	sess, _ := e.db.GetSession(context.Background(), fullID)
+	if sess == nil {
+		return nil, false, true, sourceMtime
+	}
+	if claudeCoworkProjectNeedsParse(sess) {
+		return sess, false, true, sourceMtime
+	}
+	storedSize, storedMtime, storedMetadataMtime, ok := e.db.GetSessionClaudeCoworkSyncInfo(fullID)
+	if !ok {
+		return sess, false, true, sourceMtime
+	}
+	if storedMetadataMtime != metadataMtime {
+		return sess, false, true, sourceMtime
+	}
+	if storedSize != info.Size() || storedMtime != sourceMtime {
+		return sess, false, false, sourceMtime
+	}
+	if e.db.GetSessionDataVersion(fullID) <
+		db.CurrentDataVersion() {
+		return sess, false, true, sourceMtime
+	}
+	return sess, true, false, sourceMtime
+}
+
 // fakeSnapshotInfo wraps a pre-computed size and mtime
 // (nanoseconds) as os.FileInfo so that shouldSkipByPath can
 // be reused for OpenHands snapshot-based skip detection.
@@ -1817,6 +1983,69 @@ func (e *Engine) processClaude(
 	parser.InferRelationshipTypes(results)
 
 	return processResult{results: results}
+}
+
+func (e *Engine) processClaudeCowork(
+	file parser.DiscoveredFile,
+	info os.FileInfo,
+) processResult {
+	metaState, err := parser.ReadClaudeDesktopMetadataState(file.Path)
+	if err != nil {
+		return processResult{err: err}
+	}
+	sourceMtime, err := parser.ClaudeDesktopSourceMtimeFromInfo(
+		file.Path,
+		info,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	sessionID := string(parser.AgentClaudeCowork) + ":" + metaState.SessionID
+	existing, skip, needsFullParse, sourceMtime := e.shouldSkipClaudeCowork(
+		sessionID, info, sourceMtime, metaState.MetadataMtime,
+	)
+	if skip {
+		return processResult{skip: true}
+	}
+
+	if !needsFullParse {
+		if res, ok := e.tryIncrementalJSONL(
+			file,
+			info,
+			parser.AgentClaudeCowork,
+			parser.ParseClaudeDesktopSessionFrom,
+		); ok {
+			if res.incremental != nil {
+				res.incremental.fileMtime = sourceMtime
+			}
+			return res
+		}
+	}
+
+	project := parser.GetProjectName(file.Project)
+	sess, msgs, err := parser.ParseClaudeDesktopSession(
+		file.Path, project, e.machine, parser.AgentClaudeCowork,
+	)
+	if err != nil {
+		return processResult{err: err}
+	}
+	if sess == nil {
+		return processResult{}
+	}
+	preserveClaudeCoworkLocation(sess, existing, project)
+	sess.File.Mtime = sourceMtime
+	sess.SourceMetadataMtime = metaState.MetadataMtime
+
+	hash, err := ComputeFileHash(file.Path)
+	if err == nil {
+		sess.File.Hash = hash
+	}
+
+	return processResult{
+		results: []parser.ParseResult{
+			{Session: *sess, Messages: msgs},
+		},
+	}
 }
 
 // incrementalParseFunc reads new JSONL lines from a file
@@ -2665,7 +2894,6 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 			log.Printf("upsert session %s: %v", s.ID, err)
 			continue
 		}
-
 		var werr error
 		if stale {
 			werr = e.db.ReplaceSessionMessages(s.ID, msgs)
@@ -2679,6 +2907,7 @@ func (e *Engine) writeBatch(batch []pendingWrite) {
 			)
 			continue
 		}
+		e.syncClaudeCoworkDisplayName(s)
 
 		// Advance data_version only after the message write
 		// succeeded. UpsertSession deliberately does not
@@ -2844,6 +3073,7 @@ func (e *Engine) writeSessionFull(pw pendingWrite) error {
 		)
 		return err
 	}
+	e.syncClaudeCoworkDisplayName(s)
 
 	// See writeBatch for why data_version is bumped here
 	// rather than inside UpsertSession.
@@ -2863,6 +3093,17 @@ func (e *Engine) writeSessionFull(pw pendingWrite) error {
 	}
 
 	return nil
+}
+
+func (e *Engine) syncClaudeCoworkDisplayName(s db.Session) {
+	if s.Agent != string(parser.AgentClaudeCowork) {
+		return
+	}
+	if err := e.db.SyncSourceDisplayName(s.ID, s.DisplayName); err != nil {
+		log.Printf(
+			"sync source display_name for %s: %v", s.ID, err,
+		)
+	}
 }
 
 // applyRemoteRewrites prefixes session IDs and rewrites
@@ -2928,13 +3169,17 @@ func toDBSession(pw pendingWrite) db.Session {
 		// not persist this field; the caller bumps it via
 		// SetSessionDataVersion only after the message
 		// rewrite succeeds.
-		FilePath:  strPtr(pw.sess.File.Path),
-		FileSize:  int64Ptr(pw.sess.File.Size),
-		FileMtime: int64Ptr(pw.sess.File.Mtime),
-		FileHash:  strPtr(pw.sess.File.Hash),
+		FilePath:            strPtr(pw.sess.File.Path),
+		FileSize:            int64Ptr(pw.sess.File.Size),
+		FileMtime:           int64Ptr(pw.sess.File.Mtime),
+		SourceMetadataMtime: int64Ptr(pw.sess.SourceMetadataMtime),
+		FileHash:            strPtr(pw.sess.File.Hash),
 	}
 	if pw.sess.FirstMessage != "" {
 		s.FirstMessage = &pw.sess.FirstMessage
+	}
+	if pw.sess.DisplayName != "" {
+		s.DisplayName = &pw.sess.DisplayName
 	}
 	if !pw.sess.StartedAt.IsZero() {
 		s.StartedAt = timeutil.Ptr(pw.sess.StartedAt)
@@ -3136,6 +3381,14 @@ func (e *Engine) SyncSingleSession(sessionID string) error {
 		// path is <kimiDir>/<project-hash>/<session-uuid>/wire.jsonl
 		// Derive project from two levels up.
 		file.Project = filepath.Base(filepath.Dir(filepath.Dir(path)))
+	case parser.AgentClaudeCowork:
+		if sess, _ := e.db.GetSession(
+			context.Background(), sessionID,
+		); sess != nil &&
+			sess.Project != "" &&
+			!parser.NeedsProjectReparse(sess.Project) {
+			file.Project = sess.Project
+		}
 	}
 
 	res := e.processFile(file)

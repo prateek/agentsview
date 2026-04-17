@@ -222,6 +222,167 @@ func TestUpsertSession_DisplayNameInsertOnly(t *testing.T) {
 	}
 }
 
+func TestSyncSourceDisplayName(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	initial := "Before title change"
+	requireNoError(t, d.UpsertSession(Session{
+		ID:           "claude-cowork:title-sync",
+		Project:      "my_app",
+		Machine:      "local",
+		Agent:        "claude-cowork",
+		DisplayName:  &initial,
+		MessageCount: 1,
+	}), "UpsertSession insert")
+	requireNoError(
+		t,
+		d.SyncSourceDisplayName("claude-cowork:title-sync", &initial),
+		"SyncSourceDisplayName initial",
+	)
+
+	updated := "After title change"
+	requireNoError(
+		t,
+		d.SyncSourceDisplayName("claude-cowork:title-sync", &updated),
+		"SyncSourceDisplayName update",
+	)
+	s, err := d.GetSession(ctx, "claude-cowork:title-sync")
+	requireNoError(t, err, "GetSession after source update")
+	if s == nil || s.DisplayName == nil || *s.DisplayName != updated {
+		t.Fatalf("DisplayName = %#v, want %q", s.DisplayName, updated)
+	}
+
+	custom := "Pinned custom name"
+	requireNoError(
+		t,
+		d.RenameSession("claude-cowork:title-sync", &custom),
+		"RenameSession custom",
+	)
+	later := "Parser title after rename"
+	requireNoError(
+		t,
+		d.SyncSourceDisplayName("claude-cowork:title-sync", &later),
+		"SyncSourceDisplayName preserves custom name",
+	)
+	s, err = d.GetSession(ctx, "claude-cowork:title-sync")
+	requireNoError(t, err, "GetSession after custom rename")
+	if s == nil || s.DisplayName == nil || *s.DisplayName != custom {
+		t.Fatalf("DisplayName = %#v, want %q", s.DisplayName, custom)
+	}
+}
+
+func TestSyncSourceDisplayName_MigratedRowClearsStaleTitle(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	initial := "Migrated title"
+	requireNoError(t, d.UpsertSession(Session{
+		ID:           "claude-cowork:migrated-title",
+		Project:      "my_app",
+		Machine:      "local",
+		Agent:        "claude-cowork",
+		DisplayName:  &initial,
+		MessageCount: 1,
+	}), "UpsertSession insert")
+	_, err := d.getWriter().Exec(
+		`UPDATE sessions
+		    SET source_display_name = NULL,
+		        local_modified_at = NULL
+		  WHERE id = ?`,
+		"claude-cowork:migrated-title",
+	)
+	requireNoError(t, err, "simulate migrated row")
+
+	requireNoError(
+		t,
+		d.SyncSourceDisplayName("claude-cowork:migrated-title", nil),
+		"SyncSourceDisplayName clear migrated title",
+	)
+	s, err := d.GetSession(ctx, "claude-cowork:migrated-title")
+	requireNoError(t, err, "GetSession after clear")
+	if s == nil {
+		t.Fatal("GetSession returned nil after clear")
+	}
+	if s.DisplayName != nil {
+		t.Fatalf("DisplayName = %#v, want nil", s.DisplayName)
+	}
+}
+
+func TestSyncSourceDisplayName_MigratedCustomNamePreserved(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	initial := "Migrated title"
+	requireNoError(t, d.UpsertSession(Session{
+		ID:           "claude-cowork:migrated-custom",
+		Project:      "my_app",
+		Machine:      "local",
+		Agent:        "claude-cowork",
+		DisplayName:  &initial,
+		MessageCount: 1,
+	}), "UpsertSession insert")
+	_, err := d.getWriter().Exec(
+		`UPDATE sessions
+		    SET source_display_name = NULL
+		  WHERE id = ?`,
+		"claude-cowork:migrated-custom",
+	)
+	requireNoError(t, err, "clear source_display_name")
+
+	custom := "Pinned custom name"
+	requireNoError(
+		t,
+		d.RenameSession("claude-cowork:migrated-custom", &custom),
+		"RenameSession custom",
+	)
+	requireNoError(
+		t,
+		d.SyncSourceDisplayName("claude-cowork:migrated-custom", nil),
+		"SyncSourceDisplayName preserve migrated custom name",
+	)
+	s, err := d.GetSession(ctx, "claude-cowork:migrated-custom")
+	requireNoError(t, err, "GetSession after preserve")
+	if s == nil || s.DisplayName == nil || *s.DisplayName != custom {
+		t.Fatalf("DisplayName = %#v, want %q", s.DisplayName, custom)
+	}
+}
+
+func TestSyncSourceDisplayName_MigratedRowTracksNewTitle(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+
+	initial := "Old parser title"
+	requireNoError(t, d.UpsertSession(Session{
+		ID:           "claude-cowork:migrated-update",
+		Project:      "my_app",
+		Machine:      "local",
+		Agent:        "claude-cowork",
+		DisplayName:  &initial,
+		MessageCount: 1,
+	}), "UpsertSession insert")
+	_, err := d.getWriter().Exec(
+		`UPDATE sessions
+		    SET source_display_name = NULL,
+		        local_modified_at = NULL
+		  WHERE id = ?`,
+		"claude-cowork:migrated-update",
+	)
+	requireNoError(t, err, "simulate migrated row")
+
+	updated := "New parser title"
+	requireNoError(
+		t,
+		d.SyncSourceDisplayName("claude-cowork:migrated-update", &updated),
+		"SyncSourceDisplayName update migrated row",
+	)
+	s, err := d.GetSession(ctx, "claude-cowork:migrated-update")
+	requireNoError(t, err, "GetSession after migrated update")
+	if s == nil || s.DisplayName == nil || *s.DisplayName != updated {
+		t.Fatalf("DisplayName = %#v, want %q", s.DisplayName, updated)
+	}
+}
+
 // TestUpsertSessionDoesNotAdvanceDataVersion guards the
 // invariant that data_version is never touched by
 // UpsertSession -- it must only advance via

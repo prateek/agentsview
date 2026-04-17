@@ -16,9 +16,10 @@
   import { sessions } from "../../stores/sessions.svelte.js";
   import { router } from "../../stores/router.svelte.js";
   import {
-    supportsResume,
-    buildResumeCommand,
-    formatResumeResponseCommand,
+    supportsDesktopResume,
+    supportsTerminalResume,
+    resolveResumeCommand,
+    type ResumeCommandResponse,
   } from "../../utils/resume.js";
 
   import { inSessionSearch } from "../../stores/inSessionSearch.svelte.js";
@@ -50,25 +51,26 @@
       .catch(() => {});
   });
 
-  let resolvedSessionDirId: string | null = null;
+  let resolvedSessionDirKey: string | null = null;
   $effect(() => {
     if (!session) {
       sessionDir = null;
-      resolvedSessionDirId = null;
+      resolvedSessionDirKey = null;
       return;
     }
     const id = session.id;
-    if (id === resolvedSessionDirId) return;
+    const key = `${id}:${session.file_mtime ?? 0}`;
+    if (key === resolvedSessionDirKey) return;
     sessionDir = null;
     getSessionDirectory(id)
       .then(({ path }) => {
         if (session?.id === id) {
           sessionDir = path || null;
-          resolvedSessionDirId = id;
+          resolvedSessionDirKey = key;
         }
       })
       .catch(() => {
-        // Don't cache the ID on failure so the next
+        // Don't cache the key on failure so the next
         // session refresh retries the lookup.
       });
   });
@@ -195,6 +197,24 @@
     feedbackTimer = setTimeout(() => { openFeedback = ""; }, 2000);
   }
 
+  async function copyResumeCommand(cmd: string | null) {
+    if (!cmd) {
+      showFeedback("Not supported");
+      return;
+    }
+    const ok = await copyToClipboard(cmd);
+    showFeedback(ok ? "Command copied!" : "Failed");
+  }
+
+  async function copySessionResumeCommand(
+    response?: ResumeCommandResponse | null,
+  ) {
+    if (!session) return;
+    await copyResumeCommand(
+      resolveResumeCommand(session.agent, session.id, response),
+    );
+  }
+
   async function handleResumeIn(opener: Opener) {
     if (!session) return;
     showOpenMenu = false;
@@ -207,22 +227,12 @@
         return;
       }
       // Launch failed — fall back to clipboard copy.
-      if (resp.command) {
-        const cmd = formatResumeResponseCommand(session.agent, resp);
-        const ok = cmd ? await copyToClipboard(cmd) : false;
-        showFeedback(ok ? "Command copied!" : "Failed");
-        return;
-      }
+      await copySessionResumeCommand(resp);
+      return;
     } catch {
       // Fall back to local command build.
     }
-    const cmd = buildResumeCommand(session.agent, session.id);
-    if (cmd) {
-      const ok = await copyToClipboard(cmd);
-      showFeedback(ok ? "Command copied!" : "Failed");
-    } else {
-      showFeedback("Not supported");
-    }
+    await copySessionResumeCommand();
   }
 
   async function handleCopyResumeCommand() {
@@ -230,22 +240,12 @@
     showOpenMenu = false;
     try {
       const resp = await resumeSession(session.id, { command_only: true });
-      if (resp.command) {
-        const cmd = formatResumeResponseCommand(session.agent, resp);
-        const ok = cmd ? await copyToClipboard(cmd) : false;
-        showFeedback(ok ? "Command copied!" : "Failed");
-        return;
-      }
+      await copySessionResumeCommand(resp);
+      return;
     } catch {
       // Fall back to local build.
     }
-    const cmd = buildResumeCommand(session.agent, session.id);
-    if (cmd) {
-      const ok = await copyToClipboard(cmd);
-      showFeedback(ok ? "Command copied!" : "Failed");
-    } else {
-      showFeedback("Not supported");
-    }
+    await copySessionResumeCommand();
   }
 
   async function handleCopyFilePath() {
@@ -280,22 +280,12 @@
         );
         return;
       }
-      if (resp.command) {
-        const cmd = formatResumeResponseCommand(session.agent, resp);
-        const ok = cmd ? await copyToClipboard(cmd) : false;
-        showFeedback(ok ? "Command copied!" : "Failed");
-        return;
-      }
+      await copySessionResumeCommand(resp);
+      return;
     } catch {
       // Fall back to local command build.
     }
-    const cmd = buildResumeCommand(session.agent, session.id);
-    if (cmd) {
-      const ok = await copyToClipboard(cmd);
-      showFeedback(ok ? "Command copied!" : "Failed");
-    } else {
-      showFeedback("Not supported");
-    }
+    await copySessionResumeCommand();
   }
 
   // Remote sessions have host-prefixed IDs (host~rawID).
@@ -303,10 +293,16 @@
     !session?.id.includes("~"),
   );
 
-  const canResume = $derived(
-    session
-      ? supportsResume(session.agent) && isLocal
-      : false,
+  const canTerminalResume = $derived(
+    !!session && isLocal && supportsTerminalResume(session.agent),
+  );
+
+  // Cowork resume is only validated end-to-end on macOS right now.
+  // We do not have Linux/Windows Claude Desktop UI coverage in CI
+  // or real boxes handy for manual verification, so only expose the
+  // action when the backend reports a concrete Claude Desktop opener.
+  const detectedClaudeDesktopOpener = $derived(
+    openers.find((o) => o.id === "claude-desktop") ?? null,
   );
 
   const terminalOpeners = $derived(
@@ -314,10 +310,47 @@
   );
 
   const claudeDesktopOpener = $derived(
-    session?.agent === "claude"
-      ? openers.find((o) => o.id === "claude-desktop") ?? null
+    session && supportsDesktopResume(session.agent)
+      ? detectedClaudeDesktopOpener
       : null,
   );
+
+  const canDesktopResume = $derived(
+    !!session &&
+    isLocal &&
+    supportsDesktopResume(session.agent) &&
+    !!claudeDesktopOpener,
+  );
+
+  const canResume = $derived(
+    !!session && isLocal && (canTerminalResume || canDesktopResume),
+  );
+
+  const desktopResumeLabel = $derived(
+    session?.agent === "claude-cowork"
+      ? "Claude Desktop (macOS only)"
+      : "Claude Desktop",
+  );
+
+  const resumeButtonLabel = $derived.by(() => {
+    if (canDesktopResume && session?.agent === "claude-cowork") {
+      return "Resume (macOS)";
+    }
+    if (canResume) {
+      return "Resume";
+    }
+    return "Open";
+  });
+
+  const resumeButtonTitle = $derived.by(() => {
+    if (canDesktopResume && session?.agent === "claude-cowork") {
+      return "Resume session in Claude Desktop (macOS only)";
+    }
+    if (canResume) {
+      return "Resume session";
+    }
+    return "Session actions";
+  });
 
   const editorOpeners = $derived(
     openers.filter((o) => o.kind === "editor"),
@@ -348,7 +381,7 @@
       }
       return;
     }
-    if (showOpenMenu && isLocal) {
+    if (showOpenMenu && canTerminalResume) {
       // Number key shortcuts (1-9) for quick selection.
       const num = parseInt(e.key);
       if (num >= 1 && num <= 9) {
@@ -441,8 +474,8 @@
             class="resume-btn"
             class:has-feedback={openFeedback !== ""}
             onclick={(e) => { e.stopPropagation(); showOpenMenu = !showOpenMenu; }}
-            title={canResume ? "Resume session in terminal" : "Session actions"}
-            aria-label={canResume ? "Resume session" : "Session actions"}
+            title={resumeButtonTitle}
+            aria-label={resumeButtonTitle}
           >
             {#if openFeedback}
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
@@ -450,7 +483,7 @@
               </svg>
               {openFeedback}
             {:else}
-              {canResume ? "Resume" : "Open"}
+              {resumeButtonLabel}
               <svg width="8" height="8" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M4.427 7.427l3.396 3.396a.25.25 0 00.354 0l3.396-3.396A.25.25 0 0011.396 7H4.604a.25.25 0 00-.177.427z"/>
               </svg>
@@ -458,7 +491,7 @@
           </button>
           {#if showOpenMenu}
             <div class="open-menu">
-              {#if canResume}
+              {#if canTerminalResume}
                 {#each terminalOpeners as opener, i (opener.id)}
                   <button
                     class="open-menu-item"
@@ -539,7 +572,7 @@
                       <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm3.5 8.9l-5 3a.75.75 0 01-1.125-.65v-6a.75.75 0 011.125-.65l5 3a.75.75 0 010 1.3z"/>
                     </svg>
                   </span>
-                  <span class="open-menu-name">Claude Desktop</span>
+                  <span class="open-menu-name">{desktopResumeLabel}</span>
                 </button>
               {/if}
             </div>

@@ -133,6 +133,123 @@ func TestDiscoverClaudeProjects(t *testing.T) {
 	})
 }
 
+func TestDiscoverClaudeCoworkSessions(t *testing.T) {
+	files := map[string]string{
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_11111111-2222-3333-4444-555555555555.json",
+		): `{"cwd":"/sessions/hello-world","initialMessage":"hi"}`,
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_11111111-2222-3333-4444-555555555555",
+			"audit.jsonl",
+		): "{}",
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_22222222-3333-4444-5555-666666666666.json",
+		): `{"cwd":"/Users/prateek/dotfiles"}`,
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_33333333-4444-5555-6666-777777777777.json.tmp",
+		): "{}",
+		filepath.Join(
+			"acct-b", "org-b",
+			"local_66666666-7777-8888-9999-aaaaaaaaaaaa.json",
+		): `{"userSelectedFolders":["/Users/prateek/Taxes"]}`,
+		filepath.Join(
+			"acct-b", "org-b",
+			"local_66666666-7777-8888-9999-aaaaaaaaaaaa",
+			"audit.jsonl",
+		): "{}",
+		filepath.Join("acct-b", "org-b", "notes.txt"): "{}",
+	}
+
+	wantPaths := []string{
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_11111111-2222-3333-4444-555555555555",
+			"audit.jsonl",
+		),
+		filepath.Join(
+			"acct-b", "org-b",
+			"local_66666666-7777-8888-9999-aaaaaaaaaaaa",
+			"audit.jsonl",
+		),
+	}
+	wantProjects := map[string]string{
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_11111111-2222-3333-4444-555555555555",
+			"audit.jsonl",
+		): "acct-a_org-a",
+		filepath.Join(
+			"acct-b", "org-b",
+			"local_66666666-7777-8888-9999-aaaaaaaaaaaa",
+			"audit.jsonl",
+		): "acct-b_org-b",
+	}
+
+	dir := t.TempDir()
+	setupFileSystem(t, dir, files)
+
+	got := DiscoverClaudeCoworkSessions(dir)
+	if len(got) != len(wantPaths) {
+		t.Fatalf(
+			"got %d files, want %d",
+			len(got), len(wantPaths),
+		)
+	}
+
+	for i, wantRel := range wantPaths {
+		wantPath := filepath.Join(dir, wantRel)
+		if got[i].Path != wantPath {
+			t.Fatalf(
+				"got[%d].Path = %q, want %q",
+				i, got[i].Path, wantPath,
+			)
+		}
+		if got[i].Agent != AgentClaudeCowork {
+			t.Fatalf(
+				"got[%d].Agent = %q, want %q",
+				i, got[i].Agent, AgentClaudeCowork,
+			)
+		}
+		if got[i].Project != wantProjects[wantRel] {
+			t.Fatalf(
+				"got[%d].Project = %q, want %q",
+				i, got[i].Project,
+				wantProjects[wantRel],
+			)
+		}
+	}
+
+	t.Run("Nonexistent", func(t *testing.T) {
+		dir := filepath.Join(t.TempDir(), "does-not-exist")
+		files := DiscoverClaudeCoworkSessions(dir)
+		if files != nil {
+			t.Errorf("expected nil, got %d files", len(files))
+		}
+	})
+
+	t.Run("SkipsDesktopCodeShapedMetadata", func(t *testing.T) {
+		dir := t.TempDir()
+		setupFileSystem(t, dir, map[string]string{
+			filepath.Join(
+				"acct-a", "org-a",
+				"local_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.json",
+			): `{"cwd":"/Users/prateek/dotfiles","initialMessage":"old code prompt","userSelectedFolders":[]}`,
+			filepath.Join(
+				"acct-a", "org-a",
+				"local_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+				"audit.jsonl",
+			): "{}",
+		})
+		if got := DiscoverClaudeCoworkSessions(dir); len(got) != 0 {
+			t.Fatalf("got %d files, want 0", len(got))
+		}
+	})
+}
+
 func TestDiscoverCodexSessions(t *testing.T) {
 	file1 := "rollout-123-abc-def-ghi-jkl-mno.jsonl"
 	file2 := "rollout-456-abc-def-ghi-jkl-mno.jsonl"
@@ -274,6 +391,73 @@ func TestFindClaudeSourceFile(t *testing.T) {
 			got := FindClaudeSourceFile(dir, id)
 			if got != "" {
 				t.Errorf("FindClaudeSourceFile(%q) = %q, want empty", id, got)
+			}
+		}
+	})
+}
+
+func TestFindClaudeDesktopSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	wantRel := filepath.Join(
+		"acct-a", "org-a",
+		"local_11111111-2222-3333-4444-555555555555",
+		"audit.jsonl",
+	)
+	setupFileSystem(t, dir, map[string]string{
+		filepath.Join(
+			"acct-a", "org-a",
+			"local_11111111-2222-3333-4444-555555555555.json",
+		): `{"cwd":"/sessions/hello-world","initialMessage":"hi"}`,
+		wantRel: "{}",
+	})
+
+	want := filepath.Join(dir, wantRel)
+	tests := []struct {
+		name     string
+		targetID string
+		wantFile string
+	}{
+		{
+			name:     "bare uuid",
+			targetID: "11111111-2222-3333-4444-555555555555",
+			wantFile: want,
+		},
+		{
+			name:     "local prefix",
+			targetID: "local_11111111-2222-3333-4444-555555555555",
+			wantFile: want,
+		},
+		{
+			name:     "missing",
+			targetID: "local_missing",
+			wantFile: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FindClaudeDesktopSourceFile(dir, tt.targetID)
+			if got != tt.wantFile {
+				t.Fatalf("got %q, want %q", got, tt.wantFile)
+			}
+		})
+	}
+
+	t.Run("Validation", func(t *testing.T) {
+		tests := []string{
+			"",
+			"../bad",
+			"a/b",
+			`a\b`,
+			"a b",
+		}
+		for _, id := range tests {
+			got := FindClaudeDesktopSourceFile(dir, id)
+			if got != "" {
+				t.Errorf(
+					"FindClaudeDesktopSourceFile(%q) = %q, want empty",
+					id, got,
+				)
 			}
 		}
 	})

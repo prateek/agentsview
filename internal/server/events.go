@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/wesm/agentsview/internal/parser"
 	syncpkg "github.com/wesm/agentsview/internal/sync"
 )
 
@@ -18,6 +19,17 @@ func statMtime(path string) int64 {
 		return 0
 	}
 	return info.ModTime().UnixNano()
+}
+
+func statSessionSourceMtime(sessionID string, sourcePath string) int64 {
+	agent, ok := parser.AgentByPrefix(sessionID)
+	if ok && agent.Type == parser.AgentClaudeCowork {
+		mtime, err := parser.ClaudeDesktopSourceMtime(sourcePath)
+		if err == nil {
+			return mtime
+		}
+	}
+	return statMtime(sourcePath)
 }
 
 const (
@@ -53,7 +65,7 @@ func (s *Server) sessionMonitor(
 		defer close(ch)
 
 		// Seed initial state from the database.
-		lastCount, lastDBMtime, _ := s.db.GetSessionVersion(
+		lastCount, lastDBVersion, _ := s.db.GetSessionVersion(
 			sessionID,
 		)
 
@@ -61,7 +73,7 @@ func (s *Server) sessionMonitor(
 			// PG read mode: poll GetSessionVersion only,
 			// no file watching or fallback sync.
 			s.pollDBOnly(ctx, ch, sessionID,
-				lastCount, lastDBMtime)
+				lastCount, lastDBVersion)
 			return
 		}
 
@@ -70,7 +82,9 @@ func (s *Server) sessionMonitor(
 		var lastFileMtime int64
 		var fileMtimeChangedAt time.Time
 		if sourcePath != "" {
-			lastFileMtime = statMtime(sourcePath)
+			lastFileMtime = statSessionSourceMtime(
+				sessionID, sourcePath,
+			)
 		}
 
 		ticker := time.NewTicker(pollInterval)
@@ -84,7 +98,7 @@ func (s *Server) sessionMonitor(
 				changed := s.checkDBForChanges(
 					sessionID,
 					&lastCount,
-					&lastDBMtime,
+					&lastDBVersion,
 					&sourcePath,
 					&lastFileMtime,
 					&fileMtimeChangedAt,
@@ -107,7 +121,7 @@ func (s *Server) sessionMonitor(
 // no sync engine or file watcher.
 func (s *Server) pollDBOnly(
 	ctx context.Context, ch chan<- struct{},
-	sessionID string, lastCount int, lastDBMtime int64,
+	sessionID string, lastCount int, lastDBVersion int64,
 ) {
 	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
@@ -117,10 +131,10 @@ func (s *Server) pollDBOnly(
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			count, dbMtime, ok := s.db.GetSessionVersion(sessionID)
-			if ok && (count != lastCount || dbMtime != lastDBMtime) {
+			count, dbVersion, ok := s.db.GetSessionVersion(sessionID)
+			if ok && (count != lastCount || dbVersion != lastDBVersion) {
 				lastCount = count
-				lastDBMtime = dbMtime
+				lastDBVersion = dbVersion
 				select {
 				case ch <- struct{}{}:
 				case <-ctx.Done():
@@ -139,7 +153,7 @@ func (s *Server) pollDBOnly(
 func (s *Server) checkDBForChanges(
 	sessionID string,
 	lastCount *int,
-	lastDBMtime *int64,
+	lastDBVersion *int64,
 	sourcePath *string,
 	lastFileMtime *int64,
 	fileMtimeChangedAt *time.Time,
@@ -147,12 +161,12 @@ func (s *Server) checkDBForChanges(
 	// Primary: check if the DB has new data (message count
 	// or file_mtime changed, covering both message appends
 	// and metadata-only updates like progress events).
-	if count, dbMtime, ok := s.db.GetSessionVersion(
+	if count, dbVersion, ok := s.db.GetSessionVersion(
 		sessionID,
 	); ok && (count != *lastCount ||
-		dbMtime != *lastDBMtime) {
+		dbVersion != *lastDBVersion) {
 		*lastCount = count
-		*lastDBMtime = dbMtime
+		*lastDBVersion = dbVersion
 		// DB was updated; clear any pending fallback.
 		*fileMtimeChangedAt = time.Time{}
 		return true
@@ -164,14 +178,16 @@ func (s *Server) checkDBForChanges(
 		if *sourcePath == "" {
 			return false
 		}
-		*lastFileMtime = statMtime(*sourcePath)
+		*lastFileMtime = statSessionSourceMtime(
+			sessionID, *sourcePath,
+		)
 		// Source file (re-)resolved — trigger fallback sync
 		// immediately since content likely differs from DB.
 		past := time.Now().Add(-syncFallbackDelay)
 		*fileMtimeChangedAt = past
 	}
 
-	mtime := statMtime(*sourcePath)
+	mtime := statSessionSourceMtime(sessionID, *sourcePath)
 	if mtime == 0 {
 		// File disappeared; try to re-resolve later.
 		*sourcePath = ""
@@ -201,12 +217,12 @@ func (s *Server) checkDBForChanges(
 			return false
 		}
 		// Re-check the DB after syncing.
-		if count, dbMtime, ok := s.db.GetSessionVersion(
+		if count, dbVersion, ok := s.db.GetSessionVersion(
 			sessionID,
 		); ok && (count != *lastCount ||
-			dbMtime != *lastDBMtime) {
+			dbVersion != *lastDBVersion) {
 			*lastCount = count
-			*lastDBMtime = dbMtime
+			*lastDBVersion = dbVersion
 			return true
 		}
 	}

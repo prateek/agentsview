@@ -117,6 +117,36 @@ func TestResumeSession(t *testing.T) {
 		assertStatus(t, w, http.StatusBadRequest)
 	})
 
+	t.Run("cowork command only returns no command", func(t *testing.T) {
+		te.seedSession(
+			t,
+			"claude-cowork:local_123",
+			t.TempDir(),
+			3,
+			func(s *db.Session) {
+				s.Agent = "claude-cowork"
+			},
+		)
+		w := te.post(t,
+			"/api/v1/sessions/claude-cowork:local_123/resume",
+			`{"command_only":true}`,
+		)
+		assertStatus(t, w, http.StatusOK)
+		var resp struct {
+			Launched bool   `json:"launched"`
+			Command  string `json:"command"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Launched {
+			t.Error("expected launched=false for command_only")
+		}
+		if resp.Command != "" {
+			t.Errorf("command = %q, want empty", resp.Command)
+		}
+	})
+
 	t.Run("cursor command only", func(t *testing.T) {
 		projectDir := t.TempDir()
 		runDir := filepath.Join(projectDir, "frontend")
@@ -306,6 +336,42 @@ func TestGetSessionDirectory(t *testing.T) {
 		})
 
 		w := te.get(t, "/api/v1/sessions/dir-cursor/directory")
+		assertStatus(t, w, http.StatusOK)
+		var resp struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		assertSamePath(t, "path", resp.Path, projectDir)
+	})
+
+	t.Run("cowork directory falls back to session cwd", func(t *testing.T) {
+		cwdDir := t.TempDir()
+		te.seedSession(t, "claude-cowork:local_dir", "avantika_resume_bump", 3, func(s *db.Session) {
+			s.Agent = "claude-cowork"
+			s.Cwd = cwdDir
+		})
+
+		w := te.get(t, "/api/v1/sessions/claude-cowork:local_dir/directory")
+		assertStatus(t, w, http.StatusOK)
+		var resp struct {
+			Path string `json:"path"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		assertSamePath(t, "path", resp.Path, cwdDir)
+	})
+
+	t.Run("cowork directory ignores virtual cwd", func(t *testing.T) {
+		projectDir := t.TempDir()
+		te.seedSession(t, "claude-cowork:local_virtual", projectDir, 3, func(s *db.Session) {
+			s.Agent = "claude-cowork"
+			s.Cwd = "/sessions/quirky-pensive-allen"
+		})
+
+		w := te.get(t, "/api/v1/sessions/claude-cowork:local_virtual/directory")
 		assertStatus(t, w, http.StatusOK)
 		var resp struct {
 			Path string `json:"path"`

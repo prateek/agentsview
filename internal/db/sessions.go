@@ -177,13 +177,14 @@ type Session struct {
 	ParserMalformedLines   int      `json:"parser_malformed_lines,omitempty"`
 	IsTruncated            bool     `json:"is_truncated,omitempty"`
 
-	DeletedAt       *string `json:"deleted_at,omitempty"`
-	FilePath        *string `json:"file_path,omitempty"`
-	FileSize        *int64  `json:"file_size,omitempty"`
-	FileMtime       *int64  `json:"file_mtime,omitempty"`
-	FileHash        *string `json:"file_hash,omitempty"`
-	LocalModifiedAt *string `json:"local_modified_at,omitempty"`
-	CreatedAt       string  `json:"created_at"`
+	DeletedAt           *string `json:"deleted_at,omitempty"`
+	FilePath            *string `json:"file_path,omitempty"`
+	FileSize            *int64  `json:"file_size,omitempty"`
+	FileMtime           *int64  `json:"file_mtime,omitempty"`
+	SourceMetadataMtime *int64  `json:"source_metadata_mtime,omitempty"`
+	FileHash            *string `json:"file_hash,omitempty"`
+	LocalModifiedAt     *string `json:"local_modified_at,omitempty"`
+	CreatedAt           string  `json:"created_at"`
 }
 
 // SessionCursor is the opaque pagination token.
@@ -672,6 +673,10 @@ func (db *DB) UpsertSession(s Session) error {
 	isAutomated := s.UserMessageCount <= 1 &&
 		s.FirstMessage != nil &&
 		IsAutomatedSession(*s.FirstMessage)
+	sourceMetadataMtime := int64(0)
+	if s.SourceMetadataMtime != nil {
+		sourceMetadataMtime = *s.SourceMetadataMtime
+	}
 
 	// data_version is intentionally NOT advanced here. The
 	// caller must call SetSessionDataVersion only after the
@@ -683,6 +688,7 @@ func (db *DB) UpsertSession(s Session) error {
 	_, err := db.getWriter().Exec(`
 		INSERT INTO sessions (
 			id, project, machine, agent, first_message, display_name,
+			source_metadata_mtime,
 			started_at, ended_at, message_count,
 			user_message_count, parent_session_id,
 			relationship_type,
@@ -693,7 +699,7 @@ func (db *DB) UpsertSession(s Session) error {
 			source_version, parser_malformed_lines,
 			is_truncated,
 			file_path, file_size, file_mtime, file_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			project = excluded.project,
 			machine = excluded.machine,
@@ -719,8 +725,10 @@ func (db *DB) UpsertSession(s Session) error {
 			file_path = excluded.file_path,
 			file_size = excluded.file_size,
 			file_mtime = excluded.file_mtime,
+			source_metadata_mtime = excluded.source_metadata_mtime,
 			file_hash = excluded.file_hash`,
 		s.ID, s.Project, s.Machine, s.Agent, s.FirstMessage, s.DisplayName,
+		sourceMetadataMtime,
 		s.StartedAt, s.EndedAt, s.MessageCount,
 		s.UserMessageCount, s.ParentSessionID,
 		s.RelationshipType,
@@ -801,6 +809,25 @@ func (db *DB) GetSessionFileInfo(
 		return 0, 0, false
 	}
 	return s.Int64, m.Int64, true
+}
+
+func (db *DB) GetSessionClaudeCoworkSyncInfo(
+	id string,
+) (size int64, sourceMtime int64, metadataMtime int64, ok bool) {
+	var (
+		s sql.NullInt64
+		m sql.NullInt64
+		u sql.NullInt64
+	)
+	err := db.getReader().QueryRow(
+		`SELECT file_size, file_mtime, source_metadata_mtime
+		   FROM sessions WHERE id = ?`,
+		id,
+	).Scan(&s, &m, &u)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return s.Int64, m.Int64, u.Int64, true
 }
 
 // GetSessionFilePath returns the stored file_path for a session,
@@ -912,11 +939,16 @@ func (db *DB) GetSessionMessageCount(
 	return count, true
 }
 
-// GetSessionVersion returns the message count and file mtime
-// for change detection in SSE watchers.
+// GetSessionVersion returns the message count and a stable
+// row-version token for SSE change detection. SQLite sessions
+// use file_mtime directly; Cowork metadata-only reparses flow
+// through the stored source mtime, so they still notify
+// watchers without widening generic SSE behavior to unrelated
+// local metadata updates.
 func (db *DB) GetSessionVersion(
 	id string,
-) (count int, fileMtime int64, ok bool) {
+) (count int, version int64, ok bool) {
+	var fileMtime int64
 	err := db.getReader().QueryRow(
 		"SELECT message_count, COALESCE(file_mtime, 0)"+
 			" FROM sessions WHERE id = ?",
@@ -1446,12 +1478,95 @@ func (db *DB) RenameSession(id string, displayName *string) error {
 	defer db.mu.Unlock()
 	_, err := db.getWriter().Exec(
 		`UPDATE sessions
-		 SET display_name = ?,
+		 SET source_display_name = COALESCE(
+		 		source_display_name, display_name
+		 	),
+		     display_name = ?,
 		     local_modified_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
 		 WHERE id = ? AND deleted_at IS NULL`,
 		displayName, id,
 	)
 	return err
+}
+
+// SyncSourceDisplayName tracks the latest parser-provided title for a
+// session and updates display_name only while it is still following the
+// parser-managed value. Once a user rename diverges from the stored
+// source_display_name, later parser title changes leave display_name
+// untouched. Rows that predate source_display_name tracking are treated
+// as parser-managed until a post-migration RenameSession snapshots the
+// prior parser title; historical custom names on those rows are
+// ambiguous and cannot be recovered reliably.
+func (db *DB) SyncSourceDisplayName(
+	id string, displayName *string,
+) error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	var (
+		current sql.NullString
+		source  sql.NullString
+	)
+	err := db.getWriter().QueryRow(
+		`SELECT display_name, source_display_name
+		   FROM sessions
+		  WHERE id = ? AND deleted_at IS NULL`,
+		id,
+	).Scan(&current, &source)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf(
+			"loading display_name state for %s: %w", id, err,
+		)
+	}
+
+	nextDisplay := nullableString(displayName)
+	if isCustomDisplayName(current, source, displayName) {
+		nextDisplay = nullableStringFromNull(current)
+	}
+	_, err = db.getWriter().Exec(
+		`UPDATE sessions
+		    SET display_name = ?,
+		        source_display_name = ?
+		  WHERE id = ? AND deleted_at IS NULL`,
+		nextDisplay, nullableString(displayName), id,
+	)
+	if err != nil {
+		return fmt.Errorf(
+			"syncing source display_name for %s: %w", id, err,
+		)
+	}
+	return nil
+}
+
+func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableStringFromNull(value sql.NullString) any {
+	if !value.Valid {
+		return nil
+	}
+	return value.String
+}
+
+func isCustomDisplayName(
+	current sql.NullString,
+	source sql.NullString,
+	parsed *string,
+) bool {
+	if !current.Valid {
+		return false
+	}
+	if source.Valid {
+		return current.String != source.String
+	}
+	return false
 }
 
 // ListTrashedSessions returns sessions that have been soft-deleted.

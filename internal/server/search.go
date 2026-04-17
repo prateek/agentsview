@@ -25,15 +25,29 @@ func validateSort(s string) string {
 	return "relevance"
 }
 
-// prepareFTSQuery wraps multi-word queries in quotes so
-// SQLite FTS matches the exact phrase rather than individual
-// terms.
+// prepareFTSQuery preserves the repo's default exact-phrase behavior
+// for multi-word queries while also quoting hyphenated terms such
+// as qa-check-1 so SQLite FTS treats them literally.
 func prepareFTSQuery(raw string) string {
-	if strings.Contains(raw, " ") &&
-		!strings.HasPrefix(raw, "\"") {
-		return "\"" + raw + "\""
+	switch {
+	case raw == "":
+		return raw
+	case isQuotedFTSPhrase(raw):
+		return raw
+	case strings.Contains(raw, " ") &&
+		!strings.HasPrefix(raw, `"`):
+		return `"` + raw + `"`
+	case strings.ContainsRune(raw, '-'):
+		return `"` + raw + `"`
+	default:
+		return raw
 	}
-	return raw
+}
+
+func isQuotedFTSPhrase(raw string) bool {
+	return len(raw) >= 2 &&
+		strings.HasPrefix(raw, `"`) &&
+		strings.HasSuffix(raw, `"`)
 }
 
 func (s *Server) handleSearch(

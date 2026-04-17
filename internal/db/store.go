@@ -36,7 +36,7 @@ type Store interface {
 	SearchSession(ctx context.Context, sessionID, query string) ([]int, error)
 
 	// SSE change detection.
-	GetSessionVersion(id string) (count int, fileMtime int64, ok bool)
+	GetSessionVersion(id string) (count int, version int64, ok bool)
 
 	// Metadata.
 	GetStats(ctx context.Context, excludeOneShot, excludeAutomated bool) (Stats, error)

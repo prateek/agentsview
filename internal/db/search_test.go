@@ -240,9 +240,9 @@ func TestSearch(t *testing.T) {
 	})
 
 	t.Run("multi-word FTS query matches session name via plain text", func(t *testing.T) {
-		// s6: display_name contains two-word phrase; search with a multi-word
-		// query that prepareFTSQuery would wrap in quotes ("unique phrase").
-		// The name branch must strip those quotes before LIKE matching.
+		// s6: display_name contains a two-word phrase. The search layer still
+		// accepts explicitly quoted phrases, and the name branch must strip
+		// those quotes before LIKE matching.
 		insertSession(t, d, "s6", "proj-f", func(s *Session) {
 			s.Agent = "claude"
 			s.StartedAt = Ptr("2024-01-06T10:00:00Z")
@@ -252,7 +252,6 @@ func TestSearch(t *testing.T) {
 		}
 		insertMessages(t, d, userMsg("s6", 0, "no match here"))
 
-		// Simulate prepareFTSQuery wrapping: multi-word queries get quoted.
 		page, err := d.Search(context.Background(), SearchFilter{
 			Query: `"unique phrase"`, Limit: 10,
 		})
@@ -267,6 +266,61 @@ func TestSearch(t *testing.T) {
 		}
 		if page.Results[0].Ordinal != -1 {
 			t.Errorf("ordinal = %d, want -1 (name-only match)", page.Results[0].Ordinal)
+		}
+	})
+
+	t.Run("quoted hyphenated FTS query matches message content", func(t *testing.T) {
+		insertSession(t, d, "s-hyphen", "proj-h", func(s *Session) {
+			s.Agent = "claude-cowork"
+			s.StartedAt = Ptr("2024-01-08T10:00:00Z")
+		})
+		insertMessages(t, d, userMsg("s-hyphen", 0, "reply with exactly: qa-check-1"))
+
+		page, err := d.Search(context.Background(), SearchFilter{
+			Query: `"qa-check-1"`, Limit: 10,
+		})
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		if len(page.Results) != 1 {
+			t.Fatalf("got %d results, want 1", len(page.Results))
+		}
+		if page.Results[0].SessionID != "s-hyphen" {
+			t.Fatalf("got session %q, want %q", page.Results[0].SessionID, "s-hyphen")
+		}
+		if page.Results[0].Ordinal != 0 {
+			t.Fatalf("ordinal = %d, want 0", page.Results[0].Ordinal)
+		}
+	})
+
+	t.Run("quoted phrase with literal quotes matches display name", func(t *testing.T) {
+		insertSession(t, d, "s-quoted", "proj-q", func(s *Session) {
+			s.Agent = "claude"
+			s.FirstMessage = Ptr("no content match here")
+			s.StartedAt = Ptr("2024-01-09T10:00:00Z")
+		})
+		if err := d.RenameSession("s-quoted", Ptr(`He said "hi"`)); err != nil {
+			t.Fatalf("RenameSession: %v", err)
+		}
+		insertMessages(t, d, userMsg("s-quoted", 0, "plain content"))
+
+		page, err := d.Search(context.Background(), SearchFilter{
+			Query: `"He said "hi""`, Limit: 10,
+		})
+		if err != nil {
+			t.Fatalf("Search: %v", err)
+		}
+		if len(page.Results) != 1 {
+			t.Fatalf("got %d results, want 1", len(page.Results))
+		}
+		if page.Results[0].SessionID != "s-quoted" {
+			t.Fatalf("got session %q, want %q", page.Results[0].SessionID, "s-quoted")
+		}
+		if page.Results[0].Ordinal != -1 {
+			t.Fatalf("ordinal = %d, want -1", page.Results[0].Ordinal)
+		}
+		if page.Results[0].Snippet != `He said "hi"` {
+			t.Fatalf("snippet = %q, want %q", page.Results[0].Snippet, `He said "hi"`)
 		}
 	})
 

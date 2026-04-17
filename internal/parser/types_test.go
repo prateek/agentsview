@@ -133,6 +133,7 @@ func TestAgentByType(t *testing.T) {
 		want  bool
 	}{
 		{AgentClaude, true},
+		{AgentClaudeCowork, true},
 		{AgentCodex, true},
 		{AgentCopilot, true},
 		{AgentGemini, true},
@@ -172,6 +173,12 @@ func TestAgentByPrefix(t *testing.T) {
 			"claude no prefix",
 			"abc-123",
 			AgentClaude,
+			true,
+		},
+		{
+			"claude cowork prefix",
+			"claude-cowork:local_123",
+			AgentClaudeCowork,
 			true,
 		},
 		{
@@ -263,6 +270,7 @@ func TestAgentByPrefix(t *testing.T) {
 func TestRegistryCompleteness(t *testing.T) {
 	allTypes := []AgentType{
 		AgentClaude,
+		AgentClaudeCowork,
 		AgentCodex,
 		AgentCopilot,
 		AgentGemini,
@@ -477,6 +485,12 @@ func TestAgentByPrefixRemote(t *testing.T) {
 			"remote claude",
 			"devbox1~abc-123",
 			AgentClaude,
+			true,
+		},
+		{
+			"remote cowork",
+			"devbox1~claude-cowork:local_123",
+			AgentClaudeCowork,
 			true,
 		},
 		{

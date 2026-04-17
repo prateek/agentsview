@@ -10,6 +10,7 @@ describe("KNOWN_AGENTS", () => {
     const names = KNOWN_AGENTS.map((a) => a.name);
     expect(names).toEqual([
       "claude",
+      "claude-cowork",
       "codex",
       "copilot",
       "gemini",
@@ -85,6 +86,9 @@ describe("agentColor", () => {
 
 describe("agentLabel", () => {
   it("returns explicit labels for hyphenated agents", () => {
+    expect(agentLabel("claude-cowork")).toBe(
+      "Claude Cowork",
+    );
     expect(agentLabel("vscode-copilot")).toBe(
       "VS Code Copilot",
     );
