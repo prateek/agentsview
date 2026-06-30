@@ -11,6 +11,7 @@ import type {
   Session,
   ProjectInfo,
   AgentInfo,
+  BranchInfo,
   SidebarSessionIndexResponse,
   SidebarSessionIndexRow,
 } from "../api/types.js";
@@ -18,6 +19,41 @@ import { sync } from "./sync.svelte.js";
 import { events } from "./events.svelte.js";
 import { starred } from "./starred.svelte.js";
 import { yokedDates } from "./yokedDates.svelte.js";
+
+// Keep these in sync with internal/db branch token separators.
+export const BRANCH_TOKEN_SEP = "\u001f";
+export const BRANCH_LIST_SEP = "\u001e";
+
+export function branchFilterToken(project: string, branch: string): string {
+  return project + BRANCH_TOKEN_SEP + branch;
+}
+
+export function splitBranchFilterToken(token: string): {
+  project: string;
+  branch: string;
+} {
+  const i = token.indexOf(BRANCH_TOKEN_SEP);
+  return i < 0
+    ? { project: "", branch: token }
+    : { project: token.slice(0, i), branch: token.slice(i + 1) };
+}
+
+export function branchLabel(
+  project: string,
+  branch: string,
+  noBranchLabel: string,
+): string {
+  const label = branch || noBranchLabel;
+  return project ? `${project}/${label}` : label;
+}
+
+export function branchTokenLabel(
+  token: string,
+  noBranchLabel: string,
+): string {
+  const { project, branch } = splitBranchFilterToken(token);
+  return branchLabel(project, branch, noBranchLabel);
+}
 
 type SidebarIndexParams = Parameters<
   typeof SessionsService.getApiV1SessionsSidebarIndex
@@ -81,6 +117,8 @@ export interface RecentlyDeletedSessions {
 export interface Filters {
   project: string;
   machine: string;
+  // branch is a BRANCH_LIST_SEP-joined list of opaque (project, branch) tokens (branchFilterToken).
+  branch: string;
   agent: string;
   termination: string;
   date: string;
@@ -99,6 +137,7 @@ function defaultFilters(): Filters {
   return {
     project: "",
     machine: "",
+    branch: "",
     agent: "",
     termination: "",
     date: "",
@@ -145,6 +184,7 @@ export function filtersToParams(
   const p: Record<string, string> = {};
   if (f.project) p["project"] = f.project;
   if (f.machine) p["machine"] = f.machine;
+  if (f.branch) p["git_branch"] = f.branch;
   if (f.agent) p["agent"] = f.agent;
   if (f.termination) p["termination"] = f.termination;
   if (f.date) p["date"] = f.date;
@@ -215,6 +255,7 @@ export function parseFiltersFromParams(
   return {
     project,
     machine: params["machine"] ?? "",
+    branch: params["git_branch"] ?? "",
     agent: params["agent"] ?? "",
     termination: params["termination"] ?? "",
     date: params["date"] ?? "",
@@ -235,6 +276,7 @@ class SessionsStore {
   projects: ProjectInfo[] = $state([]);
   agents: AgentInfo[] = $state([]);
   machines: string[] = $state([]);
+  branches: BranchInfo[] = $state([]);
   activeSessionId: string | null = $state(null);
   childSessions: Map<string, Session> = $state(new Map());
   nextCursor: string | null = $state(null);
@@ -267,6 +309,9 @@ class SessionsStore {
   private machinesLoaded: boolean = false;
   private machinesPromise: Promise<void> | null = null;
   private machinesVersion: number = 0;
+  private branchesLoaded: boolean = false;
+  private branchesPromise: Promise<void> | null = null;
+  private branchesVersion: number = 0;
   private sidebarHydrationInflightByVersion = new Map<
     number,
     Map<string, Promise<void>>
@@ -304,6 +349,7 @@ class SessionsStore {
       project: f.project || undefined,
       excludeProject: exclude,
       machine: f.machine || undefined,
+      gitBranch: f.branch || undefined,
       agent: f.agent || undefined,
       termination: f.termination || undefined,
       date: f.date || undefined,
@@ -685,6 +731,31 @@ class SessionsStore {
     return this.machinesPromise;
   }
 
+  async loadBranches() {
+    if (this.branchesLoaded) return;
+    if (this.branchesPromise) return this.branchesPromise;
+    const ver = this.branchesVersion;
+    this.branchesPromise = (async () => {
+      try {
+        configureGeneratedClient();
+        const res = await MetadataService.getApiV1Branches(
+          this.metadataParams,
+        ) as unknown as { branches: BranchInfo[] };
+        if (ver === this.branchesVersion) {
+          this.branches = res.branches;
+          this.branchesLoaded = true;
+        }
+      } catch {
+        // Non-fatal; branches list stays stale.
+      } finally {
+        if (ver === this.branchesVersion) {
+          this.branchesPromise = null;
+        }
+      }
+    })();
+    return this.branchesPromise;
+  }
+
   private setActiveSession(id: string | null) {
     if (id === this.activeSessionId) return;
     this.activeSessionId = id;
@@ -916,6 +987,31 @@ class SessionsStore {
     return this.filters.machine.split(",");
   }
 
+  toggleBranchFilter(token: string) {
+    const current = this.filters.branch
+      ? this.filters.branch.split(BRANCH_LIST_SEP)
+      : [];
+    const idx = current.indexOf(token);
+    if (idx >= 0) {
+      current.splice(idx, 1);
+    } else {
+      current.push(token);
+    }
+    this.filters.branch = current.join(BRANCH_LIST_SEP);
+    this.setActiveSession(null);
+    this.load();
+  }
+
+  isBranchSelected(token: string): boolean {
+    if (!this.filters.branch) return false;
+    return this.filters.branch.split(BRANCH_LIST_SEP).includes(token);
+  }
+
+  get selectedBranches(): string[] {
+    if (!this.filters.branch) return [];
+    return this.filters.branch.split(BRANCH_LIST_SEP);
+  }
+
   setAgentFilter(agent: string) {
     if (this.filters.agent === agent) {
       this.filters.agent = "";
@@ -1018,6 +1114,7 @@ class SessionsStore {
     const f = this.filters;
     return !!(
       f.machine ||
+      f.branch ||
       f.agent ||
       f.termination ||
       f.recentlyActive ||
@@ -1168,6 +1265,8 @@ class SessionsStore {
   }
 
   invalidateFilterCaches() {
+    const reloadBranches =
+      this.branchesLoaded || this.branchesPromise !== null;
     this.projectsVersion++;
     this.projectsLoaded = false;
     this.projectsPromise = null;
@@ -1177,9 +1276,13 @@ class SessionsStore {
     this.machinesVersion++;
     this.machinesLoaded = false;
     this.machinesPromise = null;
+    this.branchesVersion++;
+    this.branchesLoaded = false;
+    this.branchesPromise = null;
     this.loadProjects();
     this.loadAgents();
     this.loadMachines();
+    if (reloadBranches) this.loadBranches();
     sync.loadStats(this.metadataParams);
   }
 

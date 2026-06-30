@@ -329,3 +329,16 @@ func TestSyncHelpMentionsConfiguredHosts(t *testing.T) {
 		assert.Contains(t, help, want, "sync help missing %q", want)
 	}
 }
+
+func TestBranchFilterToken(t *testing.T) {
+	tok, err := branchFilterToken("proj", "")
+	require.NoError(t, err)
+	assert.Empty(t, tok, "empty branch yields no token")
+
+	_, err = branchFilterToken("", "main")
+	assert.Error(t, err, "branch without project must error")
+
+	tok, err = branchFilterToken("proj", "main")
+	require.NoError(t, err)
+	assert.Equal(t, db.EncodeBranchFilterToken("proj", "main"), tok)
+}

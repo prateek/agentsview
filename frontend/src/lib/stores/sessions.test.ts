@@ -12,6 +12,9 @@ import {
   parseFiltersFromParams,
   filtersToParams,
   splitExcludeProjectParam,
+  branchFilterToken,
+  branchLabel,
+  branchTokenLabel,
 } from "./sessions.svelte.js";
 import { starred } from "./starred.svelte.js";
 import { yokedDates } from "./yokedDates.svelte.js";
@@ -1129,6 +1132,7 @@ describe("SessionsStore", () => {
       const f: Filters = {
         project: "myproj",
         machine: "host-a",
+        branch: "myprojfeature",
         agent: "claude",
         termination: "unclean",
         date: "2024-06-15",
@@ -1145,6 +1149,7 @@ describe("SessionsStore", () => {
       expect(filtersToParams(f)).toEqual({
         project: "myproj",
         machine: "host-a",
+        git_branch: "myprojfeature",
         agent: "claude",
         termination: "unclean",
         date: "2024-06-15",
@@ -1175,6 +1180,7 @@ describe("SessionsStore", () => {
       const original: Filters = {
         project: "myproj",
         machine: "host-a",
+        branch: "myprojfeature",
         agent: "claude",
         termination: "unclean",
         date: "2024-06-15",
@@ -2267,6 +2273,21 @@ describe("SessionsStore", () => {
         "fetched during navigation",
       );
     });
+  });
+});
+
+describe("branch labels", () => {
+  it("keeps empty branch labels distinct from a real unknown branch", () => {
+    const noBranch = "(no branch)";
+    expect(branchLabel("proj", "", noBranch)).toBe("proj/(no branch)");
+    expect(branchLabel("proj", "unknown", noBranch)).toBe("proj/unknown");
+    expect(branchTokenLabel(branchFilterToken("proj", ""), noBranch)).toBe(
+      "proj/(no branch)",
+    );
+    expect(branchTokenLabel(
+      branchFilterToken("proj", ""),
+      "No branch",
+    )).toBe("proj/No branch");
   });
 });
 

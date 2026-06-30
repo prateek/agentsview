@@ -24,6 +24,18 @@ const (
 
 const dataVersionTooNewExitCode = 3
 
+// branchFilterToken builds the (project, branch) filter token; a branch needs a
+// project to scope it (like the MCP tools), so it errors without --project.
+func branchFilterToken(project, branch string) (string, error) {
+	if branch == "" {
+		return "", nil
+	}
+	if project == "" {
+		return "", fmt.Errorf("--branch requires --project")
+	}
+	return db.EncodeBranchFilterToken(project, branch), nil
+}
+
 type cliExitError struct {
 	code int
 	err  error
@@ -527,6 +539,7 @@ func newActivityReportCommand() *cobra.Command {
 	cmd.Flags().StringVar(&cfg.Timezone, "timezone", "", "IANA timezone for range bucketing")
 	cmd.Flags().StringVar(&cfg.Bucket, "bucket", "", "Bucket size: 5m, 15m, 1h, 1d, 1w")
 	cmd.Flags().StringVar(&cfg.Project, "project", "", "Filter by project")
+	cmd.Flags().StringVar(&cfg.Branch, "branch", "", "Filter by git branch name (requires --project)")
 	cmd.Flags().StringVar(&cfg.Agent, "agent", "", "Filter by agent name")
 	cmd.Flags().StringVar(&cfg.Machine, "machine", "", "Filter by machine name")
 	registerFormatFlags(cmd.Flags())

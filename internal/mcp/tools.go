@@ -160,6 +160,7 @@ type listSessionsIn struct {
 	Project          string `json:"project,omitempty" jsonschema:"Filter by project name."`
 	Agent            string `json:"agent,omitempty" jsonschema:"Filter by agent (e.g. claude, codex, gemini, antigravity)."`
 	Machine          string `json:"machine,omitempty" jsonschema:"Filter by machine name."`
+	GitBranch        string `json:"git_branch,omitempty" jsonschema:"Filter by git branch name. Requires project; the branch is scoped to that project."`
 	DateFrom         string `json:"date_from,omitempty" jsonschema:"Only sessions on or after this date (YYYY-MM-DD)."`
 	DateTo           string `json:"date_to,omitempty" jsonschema:"Only sessions on or before this date (YYYY-MM-DD)."`
 	ActiveSince      string `json:"active_since,omitempty" jsonschema:"Only sessions active since this RFC3339 timestamp."`
@@ -193,10 +194,14 @@ type listSessionsOut struct {
 func (t *toolset) listSessions(
 	ctx context.Context, _ *mcp.CallToolRequest, in listSessionsIn,
 ) (*mcp.CallToolResult, listSessionsOut, error) {
+	if in.GitBranch != "" && in.Project == "" {
+		return nil, listSessionsOut{}, fmt.Errorf("git_branch requires project")
+	}
 	res, err := t.svc.List(ctx, service.ListFilter{
 		Project:          in.Project,
 		Agent:            in.Agent,
 		Machine:          in.Machine,
+		GitBranch:        mcpBranchToken(in.Project, in.GitBranch),
 		DateFrom:         in.DateFrom,
 		DateTo:           in.DateTo,
 		ActiveSince:      in.ActiveSince,
@@ -402,6 +407,7 @@ type searchContentIn struct {
 	Mode          string `json:"mode,omitempty" jsonschema:"substring (default) or regex."`
 	Project       string `json:"project,omitempty" jsonschema:"Restrict to one project."`
 	Agent         string `json:"agent,omitempty" jsonschema:"Restrict to one agent."`
+	GitBranch     string `json:"git_branch,omitempty" jsonschema:"Restrict to one git branch name. Requires project; the branch is scoped to that project."`
 	DateFrom      string `json:"date_from,omitempty" jsonschema:"Only sessions on or after this date (YYYY-MM-DD)."`
 	DateTo        string `json:"date_to,omitempty" jsonschema:"Only sessions on or before this date (YYYY-MM-DD)."`
 	Limit         int    `json:"limit,omitempty" jsonschema:"Max matches, default 10, max 30."`
@@ -429,15 +435,19 @@ type searchContentOut struct {
 func (t *toolset) searchContent(
 	ctx context.Context, _ *mcp.CallToolRequest, in searchContentIn,
 ) (*mcp.CallToolResult, searchContentOut, error) {
+	if in.GitBranch != "" && in.Project == "" {
+		return nil, searchContentOut{}, fmt.Errorf("git_branch requires project")
+	}
 	res, err := t.svc.SearchContent(ctx, service.ContentSearchRequest{
-		Pattern:  in.Pattern,
-		Mode:     in.Mode,
-		Project:  in.Project,
-		Agent:    in.Agent,
-		DateFrom: in.DateFrom,
-		DateTo:   in.DateTo,
-		Limit:    clampLimit(in.Limit, defaultSearchLimit, maxSearchLimit),
-		Cursor:   in.Cursor,
+		Pattern:   in.Pattern,
+		Mode:      in.Mode,
+		Project:   in.Project,
+		Agent:     in.Agent,
+		GitBranch: mcpBranchToken(in.Project, in.GitBranch),
+		DateFrom:  in.DateFrom,
+		DateTo:    in.DateTo,
+		Limit:     clampLimit(in.Limit, defaultSearchLimit, maxSearchLimit),
+		Cursor:    in.Cursor,
 	})
 	if err != nil {
 		return nil, searchContentOut{}, err
@@ -480,22 +490,37 @@ func (t *toolset) searchContent(
 // --- get_usage_summary ---
 
 type usageSummaryIn struct {
-	From    string `json:"from,omitempty" jsonschema:"Range start date (YYYY-MM-DD)."`
-	To      string `json:"to,omitempty" jsonschema:"Range end date (YYYY-MM-DD)."`
-	Project string `json:"project,omitempty" jsonschema:"Filter by project."`
-	Agent   string `json:"agent,omitempty" jsonschema:"Filter by agent."`
-	Machine string `json:"machine,omitempty" jsonschema:"Filter by machine."`
+	From      string `json:"from,omitempty" jsonschema:"Range start date (YYYY-MM-DD)."`
+	To        string `json:"to,omitempty" jsonschema:"Range end date (YYYY-MM-DD)."`
+	Project   string `json:"project,omitempty" jsonschema:"Filter by project."`
+	Agent     string `json:"agent,omitempty" jsonschema:"Filter by agent."`
+	Machine   string `json:"machine,omitempty" jsonschema:"Filter by machine."`
+	GitBranch string `json:"git_branch,omitempty" jsonschema:"Filter by git branch name. Requires project; the branch is scoped to that project."`
+}
+
+// mcpBranchToken composes the filter token from a plain branch name; the MCP
+// surface is LLM-friendly. Callers reject branch-without-project, so the empty
+// guard here is defensive.
+func mcpBranchToken(project, branch string) string {
+	if project == "" || branch == "" {
+		return ""
+	}
+	return db.EncodeBranchFilterToken(project, branch)
 }
 
 func (t *toolset) usageSummary(
 	ctx context.Context, _ *mcp.CallToolRequest, in usageSummaryIn,
 ) (*mcp.CallToolResult, *service.UsageSummaryResult, error) {
+	if in.GitBranch != "" && in.Project == "" {
+		return nil, nil, fmt.Errorf("git_branch requires project")
+	}
 	res, err := t.svc.UsageSummary(ctx, service.UsageRequest{
-		From:    in.From,
-		To:      in.To,
-		Project: in.Project,
-		Agent:   in.Agent,
-		Machine: in.Machine,
+		From:      in.From,
+		To:        in.To,
+		Project:   in.Project,
+		Agent:     in.Agent,
+		Machine:   in.Machine,
+		GitBranch: mcpBranchToken(in.Project, in.GitBranch),
 		// The usage summary surface counts one-shot sessions by default
 		// (matching the REST endpoint), since cost analysis wants every
 		// session, not just multi-turn ones.

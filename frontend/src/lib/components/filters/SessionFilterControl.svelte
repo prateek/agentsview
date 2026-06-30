@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { m } from "../../i18n/index.js";
-  import { sessions } from "../../stores/sessions.svelte.js";
+  import {
+    sessions,
+    branchFilterToken,
+  } from "../../stores/sessions.svelte.js";
   import { router } from "../../stores/router.svelte.js";
   import { hasSessionRouteDateIntent } from "../../stores/sessionRouteParams.js";
   import { starred } from "../../stores/starred.svelte.js";
@@ -46,6 +49,7 @@
     $state(undefined);
   let agentSearch = $state("");
   let machineSearch = $state("");
+  let branchSearch = $state("");
 
   const sortedAgents = $derived.by(() => {
     const agents = [...sessions.agents].sort(
@@ -65,12 +69,29 @@
     return machines.filter((m) => m.toLowerCase().includes(q));
   });
 
+  const sortedBranches = $derived.by(() => {
+    const branches = [...sessions.branches].sort((a, b) =>
+      a.project === b.project
+        ? a.branch.localeCompare(b.branch)
+        : a.project.localeCompare(b.project),
+    );
+    if (!branchSearch) return branches;
+    const q = branchSearch.toLowerCase();
+    return branches.filter(
+      (b) =>
+        b.branch.toLowerCase().includes(q) ||
+        b.project.toLowerCase().includes(q),
+    );
+  });
+
   $effect(() => {
     if (open) {
       sessions.loadAgents();
       sessions.loadMachines();
+      sessions.loadBranches();
       agentSearch = "";
       machineSearch = "";
+      branchSearch = "";
     }
   });
 
@@ -372,6 +393,51 @@
           {:else}
             <span class="agent-select-empty">
               {machineSearch ? m.sidebar_filters_no_match() : m.sidebar_filters_no_machines()}
+            </span>
+          {/each}
+        </div>
+      </div>
+    {/if}
+    {#if sessions.branches.length > 0}
+      <div class="filter-section">
+        <div class="filter-section-label">{m.sidebar_filters_branch()}</div>
+        {#if sessions.branches.length > 5}
+          <input
+            class="agent-search"
+            type="text"
+            placeholder={m.sidebar_filters_search_branches()}
+            bind:value={branchSearch}
+          />
+        {/if}
+        <div class="agent-select-list">
+          {#each sortedBranches as branch (branchFilterToken(branch.project, branch.branch))}
+            {@const token = branchFilterToken(branch.project, branch.branch)}
+            {@const selected = sessions.isBranchSelected(token)}
+            <button
+              class="agent-select-row"
+              class:selected
+              style:--agent-color={"var(--accent-blue)"}
+              style:--agent-foreground={"var(--accent-blue-foreground)"}
+              onclick={() => sessions.toggleBranchFilter(token)}
+            >
+              <span
+                class="agent-check"
+                class:on={selected}
+              >
+                {#if selected}
+                  <CheckIcon size="8" strokeWidth="2.4" aria-hidden="true" />
+                {/if}
+              </span>
+              <span class="agent-select-name">
+                {branch.branch}
+              </span>
+              <span class="agent-select-count">
+                {branch.project}
+              </span>
+            </button>
+          {:else}
+            <span class="agent-select-empty">
+              {branchSearch ? m.sidebar_filters_no_match() : m.sidebar_filters_no_branches()}
             </span>
           {/each}
         </div>
