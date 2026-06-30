@@ -7,6 +7,7 @@ package activity
 
 import (
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -32,6 +33,7 @@ type SessionMeta struct {
 	Project     string
 	Agent       string
 	Machine     string
+	GitBranch   string // "" when unknown
 	StartedAt   string // RFC3339 or ""
 	EndedAt     string // RFC3339 or ""
 	IsAutomated bool   // automated (e.g. roborev) vs interactive session
@@ -81,6 +83,7 @@ type Report struct {
 	ByProject          []KeyMinutes     `json:"by_project"`
 	ByModel            []KeyMinutes     `json:"by_model"`
 	ByAgent            []KeyMinutes     `json:"by_agent"`
+	ByBranch           []KeyMinutes     `json:"by_branch"`
 	BySession          []SessionRow     `json:"by_session"`
 	Intervals          []ReportInterval `json:"intervals"`
 }
@@ -678,6 +681,7 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 	byProject := map[string]*keyAgg{}
 	byAgent := map[string]*keyAgg{}
 	byModel := map[string]*keyAgg{}
+	byBranch := map[string]*keyAgg{}
 	r.BySession = make([]SessionRow, 0, len(sessions))
 	for _, s := range sessions {
 		au := s.IsAutomated
@@ -701,6 +705,7 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 			row.PrimaryModel, row.Models = primaryAndModels(a.modelMins)
 			addKey(byProject, s.Project, mins, 0, au)
 			addKey(byAgent, s.Agent, mins, 0, au)
+			addKey(byBranch, branchBreakdownKey(s.Project, s.GitBranch), mins, 0, au)
 			for m, mm := range a.modelMins {
 				addKey(byModel, m, mm, 0, au)
 			}
@@ -717,6 +722,7 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 			// cost breakdown sums to Totals.Cost. Minutes stay timed-only above.
 			addKey(byProject, s.Project, 0, c.cost, au)
 			addKey(byAgent, s.Agent, 0, c.cost, au)
+			addKey(byBranch, branchBreakdownKey(s.Project, s.GitBranch), 0, c.cost, au)
 			for m, mc := range c.models {
 				addKey(byModel, m, 0, mc, au)
 			}
@@ -734,7 +740,32 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 	r.Totals.DistinctModels = len(modelSet)
 	r.ByProject = breakdownRows(byProject, false)
 	r.ByAgent = breakdownRows(byAgent, false)
+	r.ByBranch = breakdownRows(byBranch, false)
 	r.ByModel = breakdownRows(byModel, true)
+}
+
+// branchBreakdownKey keys the ByBranch rollup by (project, branch). The
+// separator matches db.branchFilterSep so a key round-trips as a filter token.
+const branchBreakdownSep = "\x1f"
+const noBranchLabel = "(no branch)"
+
+func branchBreakdownKey(project, branch string) string {
+	return project + branchBreakdownSep + branch
+}
+
+// BranchKeyLabel renders a ByBranch key for display as project/branch.
+func BranchKeyLabel(key string) string {
+	project, branch, ok := strings.Cut(key, branchBreakdownSep)
+	if !ok {
+		return key
+	}
+	if branch == "" {
+		branch = noBranchLabel
+	}
+	if project == "" {
+		return branch
+	}
+	return project + "/" + branch
 }
 
 // keyAgg accumulates a breakdown key's combined agent-minutes and cost plus the

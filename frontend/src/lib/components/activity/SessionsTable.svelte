@@ -1,7 +1,6 @@
 <script lang="ts">
   import { formatDateTime, m } from "../../i18n/index.js";
-  import type { Report } from "../../api/types.js";
-  import type { ActivitySessionRow } from "../../api/generated/index";
+  import type { Report, SessionRow } from "../../api/types.js";
   import { router } from "../../stores/router.svelte.js";
   import {
     ArrowDownIcon,
@@ -21,16 +20,8 @@
     onClearFilter?: () => void;
   } = $props();
 
-  // by_session is typed `any[] | null` by the codegen; cast to the
-  // generated element model for field-level type safety.
-  const allRows = $derived(
-    (report.by_session ?? []) as ActivitySessionRow[],
-  );
+  const allRows = $derived(report.by_session ?? []);
 
-  // Page-local time-slot filter from the Concurrency chart: a non-null id list
-  // restricts the table to the sessions active in the clicked slot. An empty
-  // set (an idle slot was clicked) correctly yields no rows but still shows the
-  // dismissible badge so the selection can be cleared.
   const filterSet = $derived(filterIds ? new Set(filterIds) : null);
   const rows = $derived(
     filterSet
@@ -54,20 +45,18 @@
       sortDir = sortDir === "asc" ? "desc" : "asc";
     } else {
       sortKey = key;
-      // Numeric/time columns read best high-to-low first; text
-      // columns alphabetically.
       sortDir =
         key === "project" || key === "agent" ? "asc" : "desc";
     }
   }
 
-  function isUntimed(row: ActivitySessionRow): boolean {
+  function isUntimed(row: SessionRow): boolean {
     return row.agent_minutes === null;
   }
 
   function compare(
-    a: ActivitySessionRow,
-    b: ActivitySessionRow,
+    a: SessionRow,
+    b: SessionRow,
     key: SortKey,
   ): number {
     switch (key) {
@@ -88,22 +77,15 @@
   }
 
   function byKeyThenId(
-    a: ActivitySessionRow,
-    b: ActivitySessionRow,
+    a: SessionRow,
+    b: SessionRow,
     dir: number,
   ): number {
     const primary = compare(a, b, sortKey) * dir;
     if (primary !== 0) return primary;
-    // Stable tiebreak: equal primary keys order by session_id
-    // ascending regardless of direction, so toggling sortDir never
-    // reorders peers.
     return a.session_id.localeCompare(b.session_id);
   }
 
-  // Untimed rows only have a null value for the timing keys
-  // (agent_minutes, first_active); their cost/project/agent are real.
-  // Partition them to the bottom only when sorting by a timing key, so
-  // a high-cost untimed session still participates in the cost sort.
   const sortedRows = $derived.by(() => {
     const dir = sortDir === "asc" ? 1 : -1;
     const partitionUntimed =
@@ -111,15 +93,13 @@
     if (!partitionUntimed) {
       return [...rows].sort((a, b) => byKeyThenId(a, b, dir));
     }
-    const timed: ActivitySessionRow[] = [];
-    const untimed: ActivitySessionRow[] = [];
+    const timed: SessionRow[] = [];
+    const untimed: SessionRow[] = [];
     for (const row of rows) {
       if (isUntimed(row)) untimed.push(row);
       else timed.push(row);
     }
     timed.sort((a, b) => byKeyThenId(a, b, dir));
-    // Keep appended untimed rows in a stable session_id order so they
-    // don't jump around between renders.
     untimed.sort((a, b) => a.session_id.localeCompare(b.session_id));
     return [...timed, ...untimed];
   });
@@ -133,8 +113,8 @@
     return Math.round(v).toLocaleString();
   }
 
-  function rowModel(row: ActivitySessionRow): string {
-    const models = (row.models ?? []) as string[];
+  function rowModel(row: SessionRow): string {
+    const models = row.models ?? [];
     if (models.length > 1) return m.activity_mixed();
     return row.primary_model || "—";
   }

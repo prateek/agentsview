@@ -40,6 +40,7 @@ function makeReport(): Report {
     ],
     by_model: [],
     by_agent: [],
+    by_branch: [],
     by_session: [],
     intervals: [],
   } as Report;

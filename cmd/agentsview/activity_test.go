@@ -30,7 +30,7 @@ func TestActivityReportCommand_Flags(t *testing.T) {
 	cmd := newActivityReportCommand()
 	for _, name := range []string{
 		"preset", "date", "from", "to", "timezone",
-		"bucket", "project", "agent", "machine", "json", "no-sync",
+		"bucket", "project", "branch", "agent", "machine", "json", "no-sync",
 		"offline",
 	} {
 		assert.NotNilf(t, cmd.Flags().Lookup(name), "flag --%s must exist", name)

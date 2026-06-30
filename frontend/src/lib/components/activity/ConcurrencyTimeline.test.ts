@@ -3,14 +3,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { fireEvent, render } from "@testing-library/svelte";
 import { mount, tick, unmount } from "svelte";
 import ConcurrencyTimeline from "./ConcurrencyTimeline.svelte";
-import type { Report } from "../../api/types.js";
+import type { Bucket, Report } from "../../api/types.js";
 
 class ResizeObserverMock {
   observe = vi.fn();
   disconnect = vi.fn();
 }
 
-function makeReport(overrides: Partial<Report> = {}): Report {
+type TestBucket = Omit<
+  Bucket,
+  "automated_at_peak" | "interactive_at_peak"
+> &
+  Partial<Pick<Bucket, "automated_at_peak" | "interactive_at_peak">>;
+
+type TestReportOverrides = Partial<Omit<Report, "buckets">> & {
+  buckets?: TestBucket[] | null;
+};
+
+function withBucketDefaults(buckets: TestBucket[] | null): Bucket[] | null {
+  if (buckets === null) return null;
+  return buckets.map((b) => ({
+    ...b,
+    interactive_at_peak: b.interactive_at_peak ?? b.max_agents,
+    automated_at_peak: b.automated_at_peak ?? 0,
+  }));
+}
+
+function makeReport(overrides: TestReportOverrides = {}): Report {
   // idx 2 (peak 3) carries a mixed split (2 interactive / 1 automated) for the
   // stacking and split-tooltip tests; idx 3 (peak 1) is all-interactive.
   const buckets = [
@@ -65,7 +84,8 @@ function makeReport(overrides: Partial<Report> = {}): Report {
       automated_at_peak: 0,
     },
   ];
-  const report = {
+  const { buckets: overrideBuckets, ...rest } = overrides;
+  return {
     peak: { agents: 3, at: "2026-06-16T06:00:00Z" },
     totals: {
       active_minutes: 50,
@@ -90,23 +110,16 @@ function makeReport(overrides: Partial<Report> = {}): Report {
     bucket_seconds: 10800,
     bucket_count: 8,
     elapsed_bucket_count: 5,
-    buckets,
+    buckets: withBucketDefaults(
+      overrideBuckets === undefined ? buckets : overrideBuckets,
+    ),
     by_project: null,
     by_model: null,
     by_agent: null,
     by_session: null,
     intervals: [],
-    ...overrides,
+    ...rest,
   } as Report;
-  // Backfill the peak-automation split onto any bucket literal that omits it
-  // (most fixtures only set max_agents), so the stacked bars get real geometry
-  // instead of NaN. Unspecified buckets default to all-interactive.
-  report.buckets = (report.buckets ?? []).map((b) => ({
-    interactive_at_peak: b.max_agents,
-    automated_at_peak: 0,
-    ...b,
-  }));
-  return report;
 }
 
 function popoverReport(): Report {
@@ -164,7 +177,7 @@ function popoverReport(): Report {
 }
 
 // A minute-bucketed quarter-hour range used by the per-bucket geometry tests.
-function minuteReport(overrides: Partial<Report> = {}): Report {
+function minuteReport(overrides: TestReportOverrides = {}): Report {
   return makeReport({
     range_start: "2026-06-16T00:00:00Z",
     range_end: "2026-06-16T00:15:00Z",
@@ -198,7 +211,7 @@ function minuteReport(overrides: Partial<Report> = {}): Report {
         output_tokens: 5,
         cost: 0,
       },
-    ] as Report["buckets"],
+    ],
     ...overrides,
   });
 }
