@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "../../i18n/index.js";
   import type { KeyMinutes, Report } from "../../api/types.js";
-  import { branchTokenLabel } from "../../stores/sessions.svelte.js";
+  import { branchTokenLabel } from "../../branchFilters.js";
 
   let { report }: { report: Report } = $props();
 
