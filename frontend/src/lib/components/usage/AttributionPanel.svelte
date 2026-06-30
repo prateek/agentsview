@@ -7,7 +7,7 @@
   import {
     branchFilterToken,
     branchLabel,
-  } from "../../stores/sessions.svelte.js";
+  } from "../../branchFilters.js";
   import { projectColor } from "../../utils/projectColor.js";
   import Treemap from "./Treemap.svelte";
   import { m } from "../../i18n/index.js";
@@ -145,7 +145,7 @@
           class:active={groupBy === "branch"}
           onclick={() => handleGroupByChange("branch")}
         >
-          {m.sidebar_filters_branch()}
+          {m.usage_branch()}
         </button>
       </div>
       <div class="segment-toggle">
