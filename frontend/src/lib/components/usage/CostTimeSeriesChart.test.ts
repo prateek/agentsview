@@ -100,6 +100,7 @@ function usageSummary(): UsageSummaryResponse {
     ],
     modelTotals: [],
     agentTotals: [],
+    branchTotals: [],
     sessionCounts: {
       total: 15,
       byProject: { agentsview: 15 },

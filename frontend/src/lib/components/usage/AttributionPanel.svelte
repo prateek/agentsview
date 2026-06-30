@@ -4,6 +4,10 @@
     type GroupBy,
     type AttributionView,
   } from "../../stores/usage.svelte.js";
+  import {
+    branchFilterToken,
+    branchLabel,
+  } from "../../stores/sessions.svelte.js";
   import { projectColor } from "../../utils/projectColor.js";
   import Treemap from "./Treemap.svelte";
   import { m } from "../../i18n/index.js";
@@ -20,6 +24,8 @@
 
   const groupBy = $derived(usage.toggles.attribution.groupBy);
   const view = $derived(usage.toggles.attribution.view);
+  const canSelectRows = $derived(groupBy !== "branch");
+  const noBranchLabel = $derived(m.shared_no_branch());
 
   interface Row {
     id: string;
@@ -50,6 +56,12 @@
         id: m.model,
         label: m.model,
         cost: m.cost,
+      }));
+    } else if (groupBy === "branch") {
+      items = s.branchTotals.map((b) => ({
+        id: branchFilterToken(b.project, b.branch),
+        label: branchLabel(b.project, b.branch, noBranchLabel),
+        cost: b.cost,
       }));
     } else {
       items = s.agentTotals.map((a) => ({
@@ -88,7 +100,7 @@
       usage.toggleProject(id);
     } else if (groupBy === "agent") {
       usage.toggleAgent(id);
-    } else {
+    } else if (groupBy === "model") {
       usage.toggleModel(id);
     }
   }
@@ -128,6 +140,13 @@
         >
           {m.analytics_col_agent()}
         </button>
+        <button
+          class="toggle-btn"
+          class:active={groupBy === "branch"}
+          onclick={() => handleGroupByChange("branch")}
+        >
+          {m.sidebar_filters_branch()}
+        </button>
       </div>
       <div class="segment-toggle">
         <button
@@ -151,14 +170,16 @@
   {#if rows.length === 0}
     <div class="empty">{m.shared_no_data_for_period()}</div>
   {:else}
-    <div class="hint">{m.usage_click_to_hide_hint()}</div>
+    {#if canSelectRows}
+      <div class="hint">{m.usage_click_to_hide_hint()}</div>
+    {/if}
     {#if view === "treemap"}
       <div class="treemap-layout">
         <div class="treemap-main">
           <Treemap
             items={treemapItems}
             height={260}
-            onSelect={handleSelect}
+            onSelect={canSelectRows ? handleSelect : undefined}
           />
         </div>
         <div class="side-rail">
@@ -167,8 +188,9 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="rail-row"
-              title={m.usage_click_to_hide({ label: row.label })}
-              onclick={() => handleSelect(row.id)}
+              class:interactive={canSelectRows}
+              title={canSelectRows ? m.usage_click_to_hide({ label: row.label }) : undefined}
+              onclick={canSelectRows ? () => handleSelect(row.id) : undefined}
             >
               <span class="rail-rank">{i + 1}</span>
               <span
@@ -188,8 +210,9 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="list-row"
-            title={m.usage_click_to_hide({ label: row.label })}
-            onclick={() => handleSelect(row.id)}
+            class:interactive={canSelectRows}
+            title={canSelectRows ? m.usage_click_to_hide({ label: row.label }) : undefined}
+            onclick={canSelectRows ? () => handleSelect(row.id) : undefined}
           >
             <span class="list-rank">{i + 1}</span>
             <span
@@ -270,7 +293,6 @@
     color: var(--text-secondary);
   }
 
-  /* Treemap layout: main + side rail */
   .treemap-layout {
     display: grid;
     grid-template-columns: 2.4fr 1fr;
@@ -297,11 +319,14 @@
     gap: 6px;
     padding: 3px 4px;
     border-radius: var(--radius-sm);
-    cursor: pointer;
     transition: background 0.1s;
   }
 
-  .rail-row:hover {
+  .rail-row.interactive {
+    cursor: pointer;
+  }
+
+  .rail-row.interactive:hover {
     background: var(--bg-surface-hover);
   }
 
@@ -337,7 +362,6 @@
     color: var(--text-primary);
   }
 
-  /* List view */
   .list-view {
     display: flex;
     flex-direction: column;
@@ -350,11 +374,14 @@
     gap: 8px;
     padding: 4px 6px;
     border-radius: var(--radius-sm);
-    cursor: pointer;
     transition: background 0.1s;
   }
 
-  .list-row:hover {
+  .list-row.interactive {
+    cursor: pointer;
+  }
+
+  .list-row.interactive:hover {
     background: var(--bg-surface-hover);
   }
 

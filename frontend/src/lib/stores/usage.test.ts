@@ -61,6 +61,7 @@ const usageServiceMocks = vi.hoisted(() => ({
       },
     ],
     agentTotals: [],
+    branchTotals: [],
     sessionCounts: {
       total: 0,
       byProject: {},
@@ -225,6 +226,7 @@ function usageSummary(totalCost = 0): UsageSummaryResponse {
       },
     ],
     agentTotals: [],
+    branchTotals: [],
     sessionCounts: {
       total: 0,
       byProject: {},

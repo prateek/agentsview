@@ -1,5 +1,9 @@
 <script lang="ts">
   import { usage, type GroupBy } from "../../stores/usage.svelte.js";
+  import {
+    branchFilterToken,
+    branchTokenLabel,
+  } from "../../stores/sessions.svelte.js";
   import { projectColor } from "../../utils/projectColor.js";
   import { m } from "../../i18n/index.js";
 
@@ -36,6 +40,7 @@
   }
 
   const groupBy = $derived(usage.toggles.timeSeries.groupBy);
+  const noBranchLabel = $derived(m.shared_no_branch());
 
   const seriesData = $derived.by((): {
     points: Point[];
@@ -47,7 +52,6 @@
       return { points: [], keys: [], maxY: 0 };
     }
 
-    // Sum cost per key across the whole range to find top N.
     const totals = new Map<string, number>();
     for (const day of daily) {
       if (groupBy === "project" && day.projectBreakdowns) {
@@ -65,10 +69,14 @@
           totals.set(b.agent,
             (totals.get(b.agent) ?? 0) + b.cost);
         }
+      } else if (groupBy === "branch" && day.branchBreakdowns) {
+        for (const b of day.branchBreakdowns) {
+          const key = branchFilterToken(b.project, b.branch);
+          totals.set(key, (totals.get(key) ?? 0) + b.cost);
+        }
       }
     }
 
-    // If only one key or few keys, no need for "Other".
     if (totals.size === 0) {
       const points = daily.map((d) => ({
         date: d.date,
@@ -81,7 +89,6 @@
       return { points, keys: ["total"], maxY: maxY || 1 };
     }
 
-    // Pick top N by total cost, group the rest as "Other".
     const ranked = [...totals.entries()]
       .sort((a, b) => b[1] - a[1]);
     const topKeys = new Set(
@@ -106,6 +113,10 @@
         items = day.agentBreakdowns.map((b) => ({
           key: b.agent, cost: b.cost,
         }));
+      } else if (groupBy === "branch" && day.branchBreakdowns) {
+        items = day.branchBreakdowns.map((b) => ({
+          key: branchFilterToken(b.project, b.branch), cost: b.cost,
+        }));
       }
 
       for (const { key, cost } of items) {
@@ -119,8 +130,6 @@
       points.push({ date: day.date, values });
     }
 
-    // Build ordered key list: top N by cost desc, then
-    // __other__ (displayed as "Other" in legend/labels).
     const keys = ranked
       .slice(0, MAX_SERIES)
       .map(([k]) => k);
@@ -240,7 +249,6 @@
         d += i === 0 ? `M${x},${top}` : `L${x},${top}`;
       }
 
-      // Close area back along baseline
       for (let i = points.length - 1; i >= 0; i--) {
         const x = Y_LABEL_W + i * xStep;
         const base = scaleY(baselines[i]!, maxY, h);
@@ -332,6 +340,11 @@
   function handleGroupByChange(g: GroupBy) {
     usage.setTimeSeriesGroupBy(g);
   }
+
+  function legendLabel(key: string): string {
+    if (key === "__other__") return m.shared_other();
+    return groupBy === "branch" ? branchTokenLabel(key, noBranchLabel) : key;
+  }
 </script>
 
 <div class="chart-container">
@@ -358,6 +371,13 @@
         onclick={() => handleGroupByChange("agent")}
       >
         {m.analytics_col_agent()}
+      </button>
+      <button
+        class="toggle-btn"
+        class:active={groupBy === "branch"}
+        onclick={() => handleGroupByChange("branch")}
+      >
+        {m.sidebar_filters_branch()}
       </button>
     </div>
   </div>
@@ -416,7 +436,7 @@
               class="legend-dot"
               style="background: {key === '__other__' ? 'var(--text-muted)' : projectColor(key)}"
             ></span>
-            {key === "__other__" ? m.shared_other() : key}
+            {legendLabel(key)}
           </span>
         {/each}
       </div>

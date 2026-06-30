@@ -34,7 +34,7 @@ export interface UsagePairwiseSelection {
   right: UsagePairwiseSideSelection;
 }
 
-export type GroupBy = "project" | "model" | "agent";
+export type GroupBy = "project" | "model" | "agent" | "branch";
 export type TimeSeriesView = "stacked-area" | "bars" | "lines";
 export type AttributionView = "treemap" | "list" | "bars";
 
@@ -53,7 +53,12 @@ function defaultToggles(): Toggles {
 }
 
 function isGroupBy(value: unknown): value is GroupBy {
-  return value === "project" || value === "model" || value === "agent";
+  return (
+    value === "project" ||
+    value === "model" ||
+    value === "agent" ||
+    value === "branch"
+  );
 }
 
 function loadToggles(): Toggles {

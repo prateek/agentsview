@@ -5,8 +5,6 @@ import (
 	"go.kenn.io/agentsview/internal/service"
 )
 
-// Comparison holds the prior-period cost comparison returned by
-// GET /api/v1/usage/comparison.
 type Comparison struct {
 	PriorFrom      string  `json:"priorFrom"`
 	PriorTo        string  `json:"priorTo"`
@@ -14,7 +12,6 @@ type Comparison struct {
 	DeltaPct       float64 `json:"deltaPct"`
 }
 
-// ProjectTotal holds range-wide token and cost totals per project.
 type ProjectTotal struct {
 	Project             string  `json:"project"`
 	InputTokens         int     `json:"inputTokens"`
@@ -24,7 +21,6 @@ type ProjectTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
-// ModelTotal holds range-wide token and cost totals per model.
 type ModelTotal struct {
 	Model               string  `json:"model"`
 	InputTokens         int     `json:"inputTokens"`
@@ -34,7 +30,6 @@ type ModelTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
-// AgentTotal holds range-wide token and cost totals per agent.
 type AgentTotal struct {
 	Agent               string  `json:"agent"`
 	InputTokens         int     `json:"inputTokens"`
@@ -44,7 +39,16 @@ type AgentTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
-// CacheStats summarizes cache hit/miss for the period.
+type BranchTotal struct {
+	Project             string  `json:"project"`
+	Branch              string  `json:"branch"`
+	InputTokens         int     `json:"inputTokens"`
+	OutputTokens        int     `json:"outputTokens"`
+	CacheCreationTokens int     `json:"cacheCreationTokens"`
+	CacheReadTokens     int     `json:"cacheReadTokens"`
+	Cost                float64 `json:"cost"`
+}
+
 type CacheStats struct {
 	CacheReadTokens     int     `json:"cacheReadTokens"`
 	CacheCreationTokens int     `json:"cacheCreationTokens"`
@@ -69,6 +73,7 @@ type UsageSummaryResponse struct {
 	ProjectTotals    []ProjectTotal        `json:"projectTotals"`
 	ModelTotals      []ModelTotal          `json:"modelTotals"`
 	AgentTotals      []AgentTotal          `json:"agentTotals"`
+	BranchTotals     []BranchTotal         `json:"branchTotals"`
 	SessionCounts    db.UsageSessionCounts `json:"sessionCounts"`
 	CacheStats       CacheStats            `json:"cacheStats"`
 	UnsupportedUsage *UnsupportedUsage     `json:"unsupportedUsage,omitempty"`
@@ -86,6 +91,7 @@ func usageSummaryResponseFromService(
 		ProjectTotals:    projectTotalsFromService(res.ProjectTotals),
 		ModelTotals:      modelTotalsFromService(res.ModelTotals),
 		AgentTotals:      agentTotalsFromService(res.AgentTotals),
+		BranchTotals:     branchTotalsFromService(res.BranchTotals),
 		SessionCounts:    res.SessionCounts,
 		CacheStats:       cacheStatsFromService(res.CacheStats),
 		UnsupportedUsage: unsupportedUsageFromService(res.UnsupportedUsage),
@@ -102,46 +108,62 @@ func unsupportedUsageFromService(
 }
 
 func projectTotalsFromService(in []service.ProjectTotal) []ProjectTotal {
-	out := make([]ProjectTotal, 0, len(in))
-	for _, total := range in {
-		out = append(out, ProjectTotal{
+	out := make([]ProjectTotal, len(in))
+	for i, total := range in {
+		out[i] = ProjectTotal{
 			Project:             total.Project,
 			InputTokens:         total.InputTokens,
 			OutputTokens:        total.OutputTokens,
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		})
+		}
 	}
 	return out
 }
 
 func modelTotalsFromService(in []service.ModelTotal) []ModelTotal {
-	out := make([]ModelTotal, 0, len(in))
-	for _, total := range in {
-		out = append(out, ModelTotal{
+	out := make([]ModelTotal, len(in))
+	for i, total := range in {
+		out[i] = ModelTotal{
 			Model:               total.Model,
 			InputTokens:         total.InputTokens,
 			OutputTokens:        total.OutputTokens,
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		})
+		}
 	}
 	return out
 }
 
 func agentTotalsFromService(in []service.AgentTotal) []AgentTotal {
-	out := make([]AgentTotal, 0, len(in))
-	for _, total := range in {
-		out = append(out, AgentTotal{
+	out := make([]AgentTotal, len(in))
+	for i, total := range in {
+		out[i] = AgentTotal{
 			Agent:               total.Agent,
 			InputTokens:         total.InputTokens,
 			OutputTokens:        total.OutputTokens,
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		})
+		}
+	}
+	return out
+}
+
+func branchTotalsFromService(in []service.BranchTotal) []BranchTotal {
+	out := make([]BranchTotal, len(in))
+	for i, total := range in {
+		out[i] = BranchTotal{
+			Project:             total.Project,
+			Branch:              total.Branch,
+			InputTokens:         total.InputTokens,
+			OutputTokens:        total.OutputTokens,
+			CacheCreationTokens: total.CacheCreationTokens,
+			CacheReadTokens:     total.CacheReadTokens,
+			Cost:                total.Cost,
+		}
 	}
 	return out
 }
