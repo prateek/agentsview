@@ -1,9 +1,7 @@
 <script lang="ts">
   import { m } from "../../i18n/index.js";
-  import {
-    sessions,
-    branchTokenLabel,
-  } from "../../stores/sessions.svelte.js";
+  import { sessions } from "../../stores/sessions.svelte.js";
+  import { branchTokenLabel } from "../../branchFilters.js";
   import { router } from "../../stores/router.svelte.js";
   import { hasSessionRouteDateIntent } from "../../stores/sessionRouteParams.js";
   import {
