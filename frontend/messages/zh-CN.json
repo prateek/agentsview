@@ -792,7 +792,6 @@
   "activity_project": "项目",
   "activity_model": "模型",
   "activity_agent": "代理",
-  "activity_branch": "分支",
   "activity_min_unit": " 分钟",
   "activity_int_auto_split": "交互 {int} / 自动 {auto}",
   "activity_breakdown": "细分",

@@ -817,7 +817,6 @@
   "activity_project": "Project",
   "activity_model": "Model",
   "activity_agent": "Agent",
-  "activity_branch": "Branch",
   "activity_min_unit": " min",
   "activity_int_auto_split": "int {int} / auto {auto}",
   "activity_breakdown": "Breakdown",
