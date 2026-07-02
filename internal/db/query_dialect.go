@@ -626,30 +626,23 @@ func EncodeBranchFilterToken(project, branch string) string {
 	return project + branchFilterSep + branch
 }
 
-// ScopedBranch is a branch name qualified by the project that owns it, the
-// grain every branch filter operates at. Surfaces that accept a plain branch
-// name (CLI flags, MCP params) build one and call FilterToken so the scoping
-// rule and the wire encoding live in one place.
-type ScopedBranch struct {
-	Project string
-	Branch  string
-}
-
 // ErrBranchWithoutProject flags a branch filter with no project to scope it.
 // Surfaces translate it into their own parameter wording.
 var ErrBranchWithoutProject = errors.New("branch filter requires a project")
 
-// FilterToken validates the scope and renders the opaque filter token. An
-// empty branch yields an empty token, meaning no filter: flag-style surfaces
-// treat an unset branch as absent rather than as the no-branch bucket.
-func (b ScopedBranch) FilterToken() (string, error) {
-	if b.Branch == "" {
+// BranchFilterToken validates a (project, branch) filter pair and renders the
+// opaque filter token, so surfaces that accept a plain branch name (CLI flags,
+// MCP params) share one scoping rule. An empty branch yields an empty token,
+// meaning no filter: flag-style surfaces treat an unset branch as absent
+// rather than as the no-branch bucket.
+func BranchFilterToken(project, branch string) (string, error) {
+	if branch == "" {
 		return "", nil
 	}
-	if b.Project == "" {
+	if project == "" {
 		return "", ErrBranchWithoutProject
 	}
-	return EncodeBranchFilterToken(b.Project, b.Branch), nil
+	return EncodeBranchFilterToken(project, branch), nil
 }
 
 // SplitBranchFilterTokens decodes a branchListSep-joined list of

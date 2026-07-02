@@ -55,7 +55,7 @@ func sessionActivity(s db.Session) string {
 // mcpBranchToken renders the git_branch/project tool params as a filter
 // token, translating the shared scoping rule into MCP parameter wording.
 func mcpBranchToken(project, branch string) (string, error) {
-	tok, err := db.ScopedBranch{Project: project, Branch: branch}.FilterToken()
+	tok, err := db.BranchFilterToken(project, branch)
 	if errors.Is(err, db.ErrBranchWithoutProject) {
 		return "", errors.New("git_branch requires project")
 	}

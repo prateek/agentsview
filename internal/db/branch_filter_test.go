@@ -104,15 +104,15 @@ func TestSplitBranchFilterTokens(t *testing.T) {
 	}
 }
 
-func TestScopedBranchFilterToken(t *testing.T) {
-	tok, err := ScopedBranch{Project: "proj"}.FilterToken()
+func TestBranchFilterToken(t *testing.T) {
+	tok, err := BranchFilterToken("proj", "")
 	require.NoError(t, err)
 	assert.Empty(t, tok, "empty branch means no filter")
 
-	_, err = ScopedBranch{Branch: "main"}.FilterToken()
+	_, err = BranchFilterToken("", "main")
 	assert.ErrorIs(t, err, ErrBranchWithoutProject)
 
-	tok, err = ScopedBranch{Project: "proj", Branch: "main"}.FilterToken()
+	tok, err = BranchFilterToken("proj", "main")
 	require.NoError(t, err)
 	assert.Equal(t, EncodeBranchFilterToken("proj", "main"), tok)
 }
