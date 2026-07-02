@@ -955,9 +955,7 @@ class SessionsStore {
   }
 
   toggleBranchFilter(token: string) {
-    const current = this.filters.branch
-      ? this.filters.branch.split(BRANCH_LIST_SEP)
-      : [];
+    const current = [...this.selectedBranches];
     const idx = current.indexOf(token);
     if (idx >= 0) {
       current.splice(idx, 1);
@@ -967,11 +965,6 @@ class SessionsStore {
     this.filters.branch = current.join(BRANCH_LIST_SEP);
     this.setActiveSession(null);
     this.load();
-  }
-
-  isBranchSelected(token: string): boolean {
-    if (!this.filters.branch) return false;
-    return this.filters.branch.split(BRANCH_LIST_SEP).includes(token);
   }
 
   get selectedBranches(): string[] {

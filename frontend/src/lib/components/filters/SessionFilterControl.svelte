@@ -77,6 +77,8 @@
     );
   });
 
+  const selectedBranchSet = $derived(new Set(sessions.selectedBranches));
+
   $effect(() => {
     if (open) {
       sessions.loadAgents();
@@ -404,7 +406,7 @@
         {/if}
         <div class="agent-select-list">
           {#each visibleBranches as branch (branch.token)}
-            {@const selected = sessions.isBranchSelected(branch.token)}
+            {@const selected = selectedBranchSet.has(branch.token)}
             <button
               class="agent-select-row"
               class:selected
@@ -421,7 +423,7 @@
                 {/if}
               </span>
               <span class="agent-select-name">
-                {branch.branch}
+                {branch.branch || m.shared_no_branch()}
               </span>
               <span class="agent-select-count">
                 {branch.project}

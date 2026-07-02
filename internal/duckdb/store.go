@@ -224,6 +224,10 @@ func scanSessionRows(rows *sql.Rows) ([]db.Session, error) {
 	return sessions, rows.Err()
 }
 
+// duckActivityExpr is a session's effective recency, mirroring the SQLite and
+// PG activity expressions (DuckDB timestamps are real NULLs, so no NULLIF).
+const duckActivityExpr = "COALESCE(ended_at, started_at, created_at)"
+
 func (s *Store) FindSessionIDsByPartial(
 	ctx context.Context, partial string, limit int,
 ) ([]string, error) {
@@ -236,7 +240,7 @@ func (s *Store) FindSessionIDsByPartial(
 	rows, err := s.queryContext(ctx,
 		`SELECT id FROM sessions
 		 WHERE strpos(id, ?) > 0 AND deleted_at IS NULL
-		 ORDER BY COALESCE(ended_at, started_at, created_at) DESC
+		 ORDER BY `+duckActivityExpr+` DESC
 		 LIMIT ?`,
 		partial, limit,
 	)
@@ -633,7 +637,7 @@ func (s *Store) GetBranches(ctx context.Context, excludeOneShot, excludeAutomate
 		`SELECT project, git_branch FROM sessions WHERE `+
 			rootSessionWhere(excludeOneShot, excludeAutomated)+
 			` GROUP BY project, git_branch
-			ORDER BY MAX(COALESCE(ended_at, started_at, created_at)) DESC NULLS LAST,
+			ORDER BY MAX(`+duckActivityExpr+`) DESC NULLS LAST,
 				project, git_branch`,
 	)
 	if err != nil {
