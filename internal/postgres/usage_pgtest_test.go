@@ -1026,3 +1026,70 @@ func TestStoreGetSessionUsage_CopilotNoAICreditsUnpriced(t *testing.T) {
 	assert.False(t, u.HasCost, "HasCost should be false")
 	assert.Equal(t, 0.0, u.AICredits, "AICredits should be 0 when unpriced")
 }
+
+// TestStoreGetDailyUsageBranchBreakdowns guards the (project, branch)
+// accumulator against a real Postgres server; SQLite and DuckDB have the
+// equivalent coverage (TestGetDailyUsageBranchBreakdowns,
+// TestDuckDBBranchDimension) but this backend had none.
+func TestStoreGetDailyUsageBranchBreakdowns(t *testing.T) {
+	_, store := prepareUsageSchema(t, "agentsview_usage_branch_test")
+
+	ctx := context.Background()
+	_, err := store.DB().ExecContext(ctx, `
+		INSERT INTO sessions (
+			id, machine, project, agent, git_branch, started_at,
+			message_count, user_message_count
+		) VALUES
+			('usage-branch-001', 'test-machine', 'proj-a', 'claude', 'main',
+			 '2026-03-12T10:00:00Z'::timestamptz, 1, 1),
+			('usage-branch-002', 'test-machine', 'proj-a', 'claude', 'feature-x',
+			 '2026-03-12T10:05:00Z'::timestamptz, 1, 1),
+			('usage-branch-003', 'test-machine', 'proj-b', 'claude', 'main',
+			 '2026-03-12T10:10:00Z'::timestamptz, 1, 1),
+			('usage-branch-004', 'test-machine', 'proj-a', 'claude', '',
+			 '2026-03-12T10:15:00Z'::timestamptz, 1, 1)`)
+	require.NoError(t, err, "insert sessions")
+	_, err = store.DB().ExecContext(ctx, `
+		INSERT INTO messages (
+			session_id, ordinal, role, content, timestamp, content_length,
+			model, token_usage
+		) VALUES
+			('usage-branch-001', 0, 'assistant', 'one',
+			 '2026-03-12T10:00:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":100000}'),
+			('usage-branch-002', 0, 'assistant', 'two',
+			 '2026-03-12T10:05:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":200000}'),
+			('usage-branch-003', 0, 'assistant', 'three',
+			 '2026-03-12T10:10:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":300000}'),
+			('usage-branch-004', 0, 'assistant', 'four',
+			 '2026-03-12T10:15:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":400000}')`)
+	require.NoError(t, err, "insert messages")
+
+	result, err := store.GetDailyUsage(ctx, db.UsageFilter{
+		From:       "2026-03-12",
+		To:         "2026-03-12",
+		Timezone:   "UTC",
+		Breakdowns: true,
+	})
+	require.NoError(t, err, "GetDailyUsage")
+	require.Len(t, result.Daily, 1)
+
+	byKey := map[db.BranchInfo]db.BranchBreakdown{}
+	for _, b := range result.Daily[0].BranchBreakdowns {
+		byKey[db.BranchInfo{Project: b.Project, Branch: b.Branch}] = b
+	}
+	require.Len(t, byKey, 4, "one bucket per distinct (project, branch)")
+	assert.Equal(t, 100000,
+		byKey[db.BranchInfo{Project: "proj-a", Branch: "main"}].InputTokens)
+	assert.Equal(t, 200000,
+		byKey[db.BranchInfo{Project: "proj-a", Branch: "feature-x"}].InputTokens)
+	assert.Equal(t, 300000,
+		byKey[db.BranchInfo{Project: "proj-b", Branch: "main"}].InputTokens,
+		"proj-b/main is distinct from proj-a/main")
+	assert.Equal(t, 400000,
+		byKey[db.BranchInfo{Project: "proj-a", Branch: ""}].InputTokens,
+		"empty branch bucket")
+}

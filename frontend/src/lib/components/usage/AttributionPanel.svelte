@@ -24,6 +24,9 @@
 
   const groupBy = $derived(usage.toggles.attribution.groupBy);
   const view = $derived(usage.toggles.attribution.view);
+  // UsageFilter has no ExcludeGitBranch (unlike project/agent/model), so
+  // click-to-hide has nothing to call for branch rows; the sidebar's branch
+  // checkboxes already cover narrowing to a branch.
   const canSelectRows = $derived(groupBy !== "branch");
   const noBranchLabel = $derived(m.shared_no_branch());
 

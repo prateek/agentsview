@@ -16,10 +16,11 @@ func branchInfoForTest(project, branch string) BranchInfo {
 	}
 }
 
-func TestGetDailyUsageBranchBreakdowns(t *testing.T) {
-	d := testDB(t)
-	ctx := context.Background()
-
+// seedBranchUsageFixture seeds "" and "unknown" as distinct branch buckets.
+// Shared by TestGetDailyUsageBranchBreakdowns and TestGetDailyUsageGitBranchFilter
+// so it only needs updating in one place.
+func seedBranchUsageFixture(t *testing.T, d *DB) {
+	t.Helper()
 	seed := []struct {
 		id, project, branch string
 		input, output       int
@@ -46,6 +47,12 @@ func TestGetDailyUsageBranchBreakdowns(t *testing.T) {
 			DedupKey:     s.id + "-key",
 		}}), "replace usage event for %s", s.id)
 	}
+}
+
+func TestGetDailyUsageBranchBreakdowns(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	seedBranchUsageFixture(t, d)
 
 	daily, err := d.GetDailyUsage(ctx, UsageFilter{
 		From:       "2026-05-14",
@@ -70,33 +77,7 @@ func TestGetDailyUsageBranchBreakdowns(t *testing.T) {
 func TestGetDailyUsageGitBranchFilter(t *testing.T) {
 	d := testDB(t)
 	ctx := context.Background()
-
-	seed := []struct {
-		id, project, branch string
-		input, output       int
-	}{
-		{"a", "proj-a", "main", 100, 10},
-		{"b", "proj-a", "feature-x", 200, 20},
-		{"c", "proj-b", "main", 300, 30},
-		{"d", "proj-a", "", 400, 40},
-		{"e", "proj-a", "unknown", 500, 50},
-	}
-	for _, s := range seed {
-		input, output := s.input, s.output
-		insertSession(t, d, s.id, s.project, func(sess *Session) {
-			sess.GitBranch = s.branch
-			sess.StartedAt = new("2026-05-14T10:00:00Z")
-			sess.UserMessageCount = 2
-		})
-		require.NoError(t, d.ReplaceSessionUsageEvents(s.id, []UsageEvent{{
-			SessionID:    s.id,
-			Source:       "session",
-			Model:        "gpt-5.4",
-			InputTokens:  input,
-			OutputTokens: output,
-			DedupKey:     s.id + "-key",
-		}}), "replace usage event for %s", s.id)
-	}
+	seedBranchUsageFixture(t, d)
 
 	daily, err := d.GetDailyUsage(ctx, UsageFilter{
 		From:      "2026-05-14",

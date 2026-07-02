@@ -1,11 +1,36 @@
 <script lang="ts">
   import { usage, type GroupBy } from "../../stores/usage.svelte.js";
+  import type { DailyUsageEntry } from "../../api/types/usage.js";
   import {
     branchFilterToken,
     branchTokenLabel,
   } from "../../branchFilters.js";
   import { projectColor } from "../../utils/projectColor.js";
   import { m } from "../../i18n/index.js";
+
+  function breakdownItems(
+    day: DailyUsageEntry,
+    groupBy: GroupBy,
+  ): Array<{ key: string; cost: number }> {
+    switch (groupBy) {
+      case "project":
+        return (day.projectBreakdowns ?? []).map((b) => ({
+          key: b.project, cost: b.cost,
+        }));
+      case "model":
+        return (day.modelBreakdowns ?? []).map((b) => ({
+          key: b.modelName, cost: b.cost,
+        }));
+      case "agent":
+        return (day.agentBreakdowns ?? []).map((b) => ({
+          key: b.agent, cost: b.cost,
+        }));
+      case "branch":
+        return (day.branchBreakdowns ?? []).map((b) => ({
+          key: branchFilterToken(b.project, b.branch), cost: b.cost,
+        }));
+    }
+  }
 
   const CHART_H = 180;
   const X_LABEL_H = 20;
@@ -55,26 +80,8 @@
     // Sum cost per key across the whole range to find top N.
     const totals = new Map<string, number>();
     for (const day of daily) {
-      if (groupBy === "project" && day.projectBreakdowns) {
-        for (const b of day.projectBreakdowns) {
-          totals.set(b.project,
-            (totals.get(b.project) ?? 0) + b.cost);
-        }
-      } else if (groupBy === "model" && day.modelBreakdowns) {
-        for (const b of day.modelBreakdowns) {
-          totals.set(b.modelName,
-            (totals.get(b.modelName) ?? 0) + b.cost);
-        }
-      } else if (groupBy === "agent" && day.agentBreakdowns) {
-        for (const b of day.agentBreakdowns) {
-          totals.set(b.agent,
-            (totals.get(b.agent) ?? 0) + b.cost);
-        }
-      } else if (groupBy === "branch" && day.branchBreakdowns) {
-        for (const b of day.branchBreakdowns) {
-          const key = branchFilterToken(b.project, b.branch);
-          totals.set(key, (totals.get(key) ?? 0) + b.cost);
-        }
+      for (const { key, cost } of breakdownItems(day, groupBy)) {
+        totals.set(key, (totals.get(key) ?? 0) + cost);
       }
     }
 
@@ -102,27 +109,8 @@
     const points: Point[] = [];
     for (const day of daily) {
       const values: Record<string, number> = {};
-      let items: Array<{ key: string; cost: number }> = [];
 
-      if (groupBy === "project" && day.projectBreakdowns) {
-        items = day.projectBreakdowns.map((b) => ({
-          key: b.project, cost: b.cost,
-        }));
-      } else if (groupBy === "model" && day.modelBreakdowns) {
-        items = day.modelBreakdowns.map((b) => ({
-          key: b.modelName, cost: b.cost,
-        }));
-      } else if (groupBy === "agent" && day.agentBreakdowns) {
-        items = day.agentBreakdowns.map((b) => ({
-          key: b.agent, cost: b.cost,
-        }));
-      } else if (groupBy === "branch" && day.branchBreakdowns) {
-        items = day.branchBreakdowns.map((b) => ({
-          key: branchFilterToken(b.project, b.branch), cost: b.cost,
-        }));
-      }
-
-      for (const { key, cost } of items) {
+      for (const { key, cost } of breakdownItems(day, groupBy)) {
         if (topKeys.has(key)) {
           values[key] = (values[key] ?? 0) + cost;
         } else {
