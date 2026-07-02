@@ -52,14 +52,14 @@ func sessionActivity(s db.Session) string {
 	return s.CreatedAt
 }
 
+// mcpBranchToken renders the git_branch/project tool params as a filter
+// token, translating the shared scoping rule into MCP parameter wording.
 func mcpBranchToken(project, branch string) (string, error) {
-	if branch == "" {
-		return "", nil
-	}
-	if project == "" {
+	tok, err := db.ScopedBranch{Project: project, Branch: branch}.FilterToken()
+	if errors.Is(err, db.ErrBranchWithoutProject) {
 		return "", errors.New("git_branch requires project")
 	}
-	return db.EncodeBranchFilterToken(project, branch), nil
+	return tok, err
 }
 
 // isSystemMessage reports whether a message is system content that
