@@ -476,19 +476,22 @@ func assertDayMinuteFixtureSanity(t *testing.T, r activity.Report) {
 	require.Equal(t, "model-x", bySession["parity-f"].PrimaryModel,
 		"zero-cost usage still reports its known model as primary")
 
-	// ByBranch is keyed by the raw (project, branch) pair. Empty branches
-	// survive only when they carry minutes or cost.
-	const sep = "\x1f"
+	// Building the expected keys with db.EncodeBranchFilterToken asserts that
+	// ByBranch keys round-trip as branch filter tokens, not just that the
+	// bucketing is right. Empty branches survive only when they carry minutes
+	// or cost.
 	byBranch := map[string]activity.KeyMinutes{}
 	for _, b := range r.ByBranch {
 		byBranch[b.Key] = b
 	}
-	require.Contains(t, byBranch, "alpha"+sep+"main", "alpha/main bucket")
-	require.Contains(t, byBranch, "beta"+sep+"main",
+	require.Contains(t, byBranch, db.EncodeBranchFilterToken("alpha", "main"),
+		"alpha/main bucket")
+	require.Contains(t, byBranch, db.EncodeBranchFilterToken("beta", "main"),
 		"beta/main is distinct from alpha/main under the (project, branch) grain")
-	require.Contains(t, byBranch, "alpha"+sep+"feature-x",
+	require.Contains(t, byBranch, db.EncodeBranchFilterToken("alpha", "feature-x"),
 		"a project can carry multiple branches")
-	require.Contains(t, byBranch, "gamma"+sep, "empty branch bucket")
-	require.NotContains(t, byBranch, "delta"+sep,
+	require.Contains(t, byBranch, db.EncodeBranchFilterToken("gamma", ""),
+		"empty branch bucket")
+	require.NotContains(t, byBranch, db.EncodeBranchFilterToken("delta", ""),
 		"zero-cost zero-minute branch bucket is dropped like any zero row")
 }

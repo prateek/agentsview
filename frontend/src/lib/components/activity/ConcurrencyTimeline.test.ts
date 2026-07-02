@@ -3,33 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test"
 import { fireEvent, render } from "@testing-library/svelte";
 import { mount, tick, unmount } from "svelte";
 import ConcurrencyTimeline from "./ConcurrencyTimeline.svelte";
-import type { Bucket, Report } from "../../api/types.js";
+import type { Report } from "../../api/types.js";
 
 class ResizeObserverMock {
   observe = vi.fn();
   disconnect = vi.fn();
 }
 
-type TestBucket = Omit<
-  Bucket,
-  "automated_at_peak" | "interactive_at_peak"
-> &
-  Partial<Pick<Bucket, "automated_at_peak" | "interactive_at_peak">>;
-
-type TestReportOverrides = Partial<Omit<Report, "buckets">> & {
-  buckets?: TestBucket[] | null;
-};
-
-function withBucketDefaults(buckets: TestBucket[] | null): Bucket[] | null {
-  if (buckets === null) return null;
-  return buckets.map((b) => ({
-    ...b,
-    interactive_at_peak: b.interactive_at_peak ?? b.max_agents,
-    automated_at_peak: b.automated_at_peak ?? 0,
-  }));
-}
-
-function makeReport(overrides: TestReportOverrides = {}): Report {
+function makeReport(overrides: Partial<Report> = {}): Report {
   // idx 2 (peak 3) carries a mixed split (2 interactive / 1 automated) for the
   // stacking and split-tooltip tests; idx 3 (peak 1) is all-interactive.
   const buckets = [
@@ -84,7 +65,6 @@ function makeReport(overrides: TestReportOverrides = {}): Report {
       automated_at_peak: 0,
     },
   ];
-  const { buckets: overrideBuckets, ...rest } = overrides;
   return {
     peak: { agents: 3, at: "2026-06-16T06:00:00Z" },
     totals: {
@@ -110,15 +90,13 @@ function makeReport(overrides: TestReportOverrides = {}): Report {
     bucket_seconds: 10800,
     bucket_count: 8,
     elapsed_bucket_count: 5,
-    buckets: withBucketDefaults(
-      overrideBuckets === undefined ? buckets : overrideBuckets,
-    ),
+    buckets,
     by_project: null,
     by_model: null,
     by_agent: null,
     by_session: null,
     intervals: [],
-    ...rest,
+    ...overrides,
   } as Report;
 }
 
@@ -136,6 +114,8 @@ function popoverReport(): Report {
         agent_minutes: 4,
         output_tokens: 0,
         cost: 0,
+        interactive_at_peak: 2,
+        automated_at_peak: 0,
       },
     ],
     by_session: [
@@ -177,7 +157,7 @@ function popoverReport(): Report {
 }
 
 // A minute-bucketed quarter-hour range used by the per-bucket geometry tests.
-function minuteReport(overrides: TestReportOverrides = {}): Report {
+function minuteReport(overrides: Partial<Report> = {}): Report {
   return makeReport({
     range_start: "2026-06-16T00:00:00Z",
     range_end: "2026-06-16T00:15:00Z",
@@ -194,6 +174,8 @@ function minuteReport(overrides: TestReportOverrides = {}): Report {
         agent_minutes: 5,
         output_tokens: 10,
         cost: 0,
+        interactive_at_peak: 1,
+        automated_at_peak: 0,
       },
       {
         start: "2026-06-16T00:05:00Z",
@@ -202,6 +184,8 @@ function minuteReport(overrides: TestReportOverrides = {}): Report {
         agent_minutes: 5,
         output_tokens: 20,
         cost: 0,
+        interactive_at_peak: 2,
+        automated_at_peak: 0,
       },
       {
         start: "2026-06-16T00:10:00Z",
@@ -210,6 +194,8 @@ function minuteReport(overrides: TestReportOverrides = {}): Report {
         agent_minutes: 5,
         output_tokens: 5,
         cost: 0,
+        interactive_at_peak: 1,
+        automated_at_peak: 0,
       },
     ],
     ...overrides,
@@ -443,6 +429,8 @@ describe("ConcurrencyTimeline", () => {
           agent_minutes: 1,
           output_tokens: 0,
           cost: 0,
+          interactive_at_peak: 1,
+          automated_at_peak: 0,
         },
         {
           start: "2026-06-16T10:05:00Z",
@@ -451,6 +439,8 @@ describe("ConcurrencyTimeline", () => {
           agent_minutes: 0,
           output_tokens: 0,
           cost: 0,
+          interactive_at_peak: 0,
+          automated_at_peak: 0,
         },
       ],
       by_session: [] as Report["by_session"],
@@ -560,6 +550,8 @@ describe("ConcurrencyTimeline", () => {
           agent_minutes: 10,
           output_tokens: 1,
           cost: 0,
+          interactive_at_peak: 1,
+          automated_at_peak: 0,
         },
         {
           start: "2026-06-16T00:00:00Z",
@@ -568,8 +560,10 @@ describe("ConcurrencyTimeline", () => {
           agent_minutes: 10,
           output_tokens: 1,
           cost: 0,
+          interactive_at_peak: 1,
+          automated_at_peak: 0,
         },
-      ] as Report["buckets"],
+      ],
     });
     render(ConcurrencyTimeline, { report: r });
     const bar = document.querySelector("rect[data-bucket-bar]") as Element;
@@ -595,8 +589,10 @@ describe("ConcurrencyTimeline", () => {
           agent_minutes: 20,
           output_tokens: 100,
           cost: 0,
+          interactive_at_peak: 2,
+          automated_at_peak: 0,
         },
-      ] as Report["buckets"],
+      ],
     });
     const target = document.createElement("div");
     document.body.appendChild(target);

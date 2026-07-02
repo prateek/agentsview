@@ -22,6 +22,10 @@
 
   const allRows = $derived(report.by_session ?? []);
 
+  // Page-local time-slot filter from the Concurrency chart: a non-null id list
+  // restricts the table to the sessions active in the clicked slot. An empty
+  // set (an idle slot was clicked) correctly yields no rows but still shows the
+  // dismissible badge so the selection can be cleared.
   const filterSet = $derived(filterIds ? new Set(filterIds) : null);
   const rows = $derived(
     filterSet
@@ -45,6 +49,8 @@
       sortDir = sortDir === "asc" ? "desc" : "asc";
     } else {
       sortKey = key;
+      // Numeric/time columns read best high-to-low first; text
+      // columns alphabetically.
       sortDir =
         key === "project" || key === "agent" ? "asc" : "desc";
     }
@@ -83,9 +89,16 @@
   ): number {
     const primary = compare(a, b, sortKey) * dir;
     if (primary !== 0) return primary;
+    // Stable tiebreak: equal primary keys order by session_id
+    // ascending regardless of direction, so toggling sortDir never
+    // reorders peers.
     return a.session_id.localeCompare(b.session_id);
   }
 
+  // Untimed rows only have a null value for the timing keys
+  // (agent_minutes, first_active); their cost/project/agent are real.
+  // Partition them to the bottom only when sorting by a timing key, so
+  // a high-cost untimed session still participates in the cost sort.
   const sortedRows = $derived.by(() => {
     const dir = sortDir === "asc" ? 1 : -1;
     const partitionUntimed =
@@ -100,6 +113,8 @@
       else timed.push(row);
     }
     timed.sort((a, b) => byKeyThenId(a, b, dir));
+    // Keep appended untimed rows in a stable session_id order so they
+    // don't jump around between renders.
     untimed.sort((a, b) => a.session_id.localeCompare(b.session_id));
     return [...timed, ...untimed];
   });

@@ -685,6 +685,7 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 	r.BySession = make([]SessionRow, 0, len(sessions))
 	for _, s := range sessions {
 		au := s.IsAutomated
+		branchKey := branchBreakdownKey(s.Project, s.GitBranch)
 		if au {
 			r.Totals.AutomatedSessions++
 		} else {
@@ -705,7 +706,7 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 			row.PrimaryModel, row.Models = primaryAndModels(a.modelMins)
 			addKey(byProject, s.Project, mins, 0, au)
 			addKey(byAgent, s.Agent, mins, 0, au)
-			addKey(byBranch, branchBreakdownKey(s.Project, s.GitBranch), mins, 0, au)
+			addKey(byBranch, branchKey, mins, 0, au)
 			for m, mm := range a.modelMins {
 				addKey(byModel, m, mm, 0, au)
 			}
@@ -722,7 +723,7 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 			// cost breakdown sums to Totals.Cost. Minutes stay timed-only above.
 			addKey(byProject, s.Project, 0, c.cost, au)
 			addKey(byAgent, s.Agent, 0, c.cost, au)
-			addKey(byBranch, branchBreakdownKey(s.Project, s.GitBranch), 0, c.cost, au)
+			addKey(byBranch, branchKey, 0, c.cost, au)
 			for m, mc := range c.models {
 				addKey(byModel, m, 0, mc, au)
 			}
@@ -744,14 +745,16 @@ func buildSessionsTable(r *Report, start, end, effEnd time.Time,
 	r.ByModel = breakdownRows(byModel, true)
 }
 
-// branchBreakdownKey keys the ByBranch rollup by (project, branch). The
-// separator matches db.branchFilterSep so a key round-trips as a filter token.
+// The ByBranch key separator matches db.branchFilterSep so every key doubles
+// as a branch filter token. This package cannot import internal/db without a
+// cycle, so internal/db tests enforce the equivalence instead.
 const branchBreakdownSep = "\x1f"
-const noBranchLabel = "(no branch)"
 
 func branchBreakdownKey(project, branch string) string {
 	return project + branchBreakdownSep + branch
 }
+
+const noBranchLabel = "(no branch)"
 
 // BranchKeyLabel renders a ByBranch key for display as project/branch.
 func BranchKeyLabel(key string) string {

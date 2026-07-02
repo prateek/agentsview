@@ -1,8 +1,5 @@
 import type { AgentInfo, ProjectInfo } from "../api/types.js";
-import {
-  activityReportFromGenerated,
-  type Report,
-} from "../api/types/activity.js";
+import type { Report } from "../api/types/activity.js";
 import { ActivityService, MetadataService } from "../api/generated/index";
 import { configureGeneratedClient } from "../api/runtime.js";
 import { sync } from "./sync.svelte.js";
@@ -170,7 +167,7 @@ class ActivityStore {
         automation: this.automation,
       });
       if (v !== this.loadVersion) return;
-      this.report = activityReportFromGenerated(res);
+      this.report = res;
       this.lastUpdatedAt = Date.now();
       this.hasNewData = false;
       this.loading = false;

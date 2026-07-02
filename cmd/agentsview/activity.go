@@ -17,6 +17,7 @@ import (
 	"go.kenn.io/agentsview/internal/db"
 )
 
+// ActivityReportConfig holds the flags for `agentsview activity report`.
 type ActivityReportConfig struct {
 	Preset   string
 	Date     string
@@ -33,6 +34,7 @@ type ActivityReportConfig struct {
 	Offline  bool
 }
 
+// runActivityReport syncs, resolves the range, runs the report, and prints it.
 func runActivityReport(cfg ActivityReportConfig) {
 	ctx := context.Background()
 	// Validate the (project, branch) flag combo up front so a bad combination
@@ -195,6 +197,9 @@ func todayIn(tz string) string {
 	return time.Now().In(loc).Format("2006-01-02")
 }
 
+// printActivityReport renders the human-readable report: a header, totals,
+// peak concurrency, top breakdowns, and top sessions. It deliberately omits
+// the dense per-bucket timeline, which only the --json output exposes.
 func printActivityReport(r activity.Report) {
 	loc, err := time.LoadLocation(r.Timezone)
 	if err != nil {
@@ -214,13 +219,14 @@ func printActivityReport(r activity.Report) {
 	fmt.Println()
 	printActivityPeak(r.Peak, loc)
 	fmt.Println()
-	printKeyMinutes("By project", r.ByProject)
-	printKeyMinutes("By model", r.ByModel)
-	printKeyMinutes("By agent", r.ByAgent)
-	printBranchKeyMinutes("By branch", r.ByBranch)
+	printKeyMinutes("By project", r.ByProject, nil)
+	printKeyMinutes("By model", r.ByModel, nil)
+	printKeyMinutes("By agent", r.ByAgent, nil)
+	printKeyMinutes("By branch", r.ByBranch, activity.BranchKeyLabel)
 	printActivitySessions(r.BySession)
 }
 
+// printActivityTotals prints the totals block via a tabwriter.
 func printActivityTotals(t activity.Totals) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintf(w, "Active minutes\t%.1f\n", t.ActiveMinutes)
@@ -234,20 +240,14 @@ func printActivityTotals(t activity.Totals) {
 	w.Flush()
 }
 
+// printActivityPeak prints peak concurrency and when it occurred, in loc.
 func printActivityPeak(p activity.Peak, loc *time.Location) {
 	fmt.Printf("Peak concurrency: %d agents at %s\n",
 		p.Agents, fmtInstant(p.At, loc))
 }
 
-func printKeyMinutes(label string, rows []activity.KeyMinutes) {
-	printLabeledKeyMinutes(label, rows, nil)
-}
-
-func printBranchKeyMinutes(label string, rows []activity.KeyMinutes) {
-	printLabeledKeyMinutes(label, rows, activity.BranchKeyLabel)
-}
-
-func printLabeledKeyMinutes(
+// printKeyMinutes prints the top 5 rows of a key/agent-minutes breakdown.
+func printKeyMinutes(
 	label string,
 	rows []activity.KeyMinutes,
 	labelKey func(string) string,
@@ -271,6 +271,7 @@ func printLabeledKeyMinutes(
 	fmt.Println()
 }
 
+// printActivitySessions prints the top 5 sessions by appearance order.
 func printActivitySessions(rows []activity.SessionRow) {
 	fmt.Println("Top sessions (top 5):")
 	if len(rows) == 0 {
@@ -290,6 +291,7 @@ func printActivitySessions(rows []activity.SessionRow) {
 	w.Flush()
 }
 
+// topKeyMinutes returns the first n rows of rows (already sorted by the query).
 func topKeyMinutes(rows []activity.KeyMinutes, n int) []activity.KeyMinutes {
 	return rows[:min(len(rows), n)]
 }
@@ -308,6 +310,8 @@ func fmtRangeBound(ts string, loc *time.Location) string {
 	return t.Format("2006-01-02 15:04")
 }
 
+// fmtMinutes renders an agent-minutes value, printing a dash for untimed
+// sessions whose pointer is nil.
 func fmtMinutes(m *float64) string {
 	if m == nil {
 		return "—"

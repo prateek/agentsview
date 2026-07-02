@@ -13,6 +13,10 @@ export type SessionRow = Omit<ActivitySessionRow, "models"> & {
 };
 export type KeyMinutes = ActivityKeyMinutes;
 
+// Report narrows the generated model's `any[] | null` collections (the
+// codegen degrades huma's nullable arrays) to their element types. The
+// generated ActivityReport stays structurally assignable to Report, so API
+// responses need no runtime conversion.
 export type Report = Omit<
   ActivityReport,
   | "buckets"
@@ -31,30 +35,3 @@ export type Report = Omit<
   by_session: SessionRow[] | null;
   intervals: ReportInterval[] | null;
 };
-
-function generatedRows<T>(rows: unknown): T[] | null {
-  if (!Array.isArray(rows)) return null;
-  return rows as T[];
-}
-
-function sessionRowsFromGenerated(rows: unknown): SessionRow[] | null {
-  const sessions = generatedRows<ActivitySessionRow>(rows);
-  if (sessions === null) return null;
-  return sessions.map((session) => ({
-    ...session,
-    models: generatedRows<string>(session.models),
-  }));
-}
-
-export function activityReportFromGenerated(report: ActivityReport): Report {
-  return {
-    ...report,
-    buckets: generatedRows<Bucket>(report.buckets),
-    by_agent: generatedRows<KeyMinutes>(report.by_agent),
-    by_branch: generatedRows<KeyMinutes>(report.by_branch),
-    by_model: generatedRows<KeyMinutes>(report.by_model),
-    by_project: generatedRows<KeyMinutes>(report.by_project),
-    by_session: sessionRowsFromGenerated(report.by_session),
-    intervals: generatedRows<ReportInterval>(report.intervals),
-  };
-}

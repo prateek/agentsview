@@ -12,6 +12,8 @@
     return metric === "cost" ? row.cost : row.agent_minutes;
   }
 
+  // Per-row automation split for the active metric. Interactive + automated
+  // sum to rowValue, so the two bar segments stack to the full bar width.
   function interactiveValue(row: KeyMinutes): number {
     return metric === "cost"
       ? row.interactive_cost
@@ -22,6 +24,10 @@
     return metric === "cost" ? row.automated_cost : row.automated_agent_minutes;
   }
 
+  // Rank by the selected metric and drop rows that are zero for it: an untimed
+  // cost-only row contributes nothing to the minutes view (and would otherwise
+  // render as an empty "0" bar), and a zero-cost row drops from the cost view.
+  // The backend pre-sorts by minutes, so re-sort for the cost view.
   function rankedRows(arr: KeyMinutes[] | null): KeyMinutes[] {
     return (arr ?? [])
       .filter((r) => rowValue(r) > 0)
@@ -32,32 +38,29 @@
   const byModel = $derived(rankedRows(report.by_model));
   const byAgent = $derived(rankedRows(report.by_agent));
   const byBranch = $derived(rankedRows(report.by_branch));
-  const noBranchLabel = $derived(m.shared_no_branch());
 
   interface Panel {
     title: string;
     rows: KeyMinutes[];
-    label: (key: string) => string;
-  }
-
-  function identityLabel(key: string): string {
-    return key;
-  }
-
-  function branchDisplayLabel(key: string): string {
-    return branchTokenLabel(key, noBranchLabel);
+    label?: (key: string) => string;
   }
 
   const panels = $derived.by((): Panel[] => [
-    { title: m.activity_project(), rows: byProject, label: identityLabel },
-    { title: m.activity_model(), rows: byModel, label: identityLabel },
-    { title: m.activity_agent(), rows: byAgent, label: identityLabel },
-    { title: m.activity_branch(), rows: byBranch, label: branchDisplayLabel },
+    { title: m.activity_project(), rows: byProject },
+    { title: m.activity_model(), rows: byModel },
+    { title: m.activity_agent(), rows: byAgent },
+    {
+      title: m.activity_branch(),
+      rows: byBranch,
+      label: (key) => branchTokenLabel(key, m.shared_no_branch()),
+    },
   ]);
 
   function maxValue(rows: KeyMinutes[]): number {
     if (rows.length === 0) return 1;
     const m = Math.max(...rows.map(rowValue));
+    // Fall back to 1 only when the max is non-positive, so the largest bar
+    // reaches 100% even when every value is under one unit.
     return m > 0 ? m : 1;
   }
 
@@ -160,7 +163,7 @@
         {#if panel.rows.length > 0}
           <div class="bar-list">
             {#each panel.rows as row (row.key)}
-              {@const label = panel.label(row.key)}
+              {@const label = panel.label?.(row.key) ?? row.key}
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="bar-row"

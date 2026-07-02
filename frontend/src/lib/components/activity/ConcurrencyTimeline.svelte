@@ -10,6 +10,7 @@
   import OptionTypeahead, {
     type TypeaheadOption,
   } from "../layout/OptionTypeahead.svelte";
+
   let {
     report,
     selectedBucket = null,
@@ -29,6 +30,8 @@
   const Y_LABEL_W = 32;
   const RIGHT_PAD = 8;
   const OVERLAY_AXIS_W = 48;
+  // Reserved headroom so the tallest bar, its grid line, and
+  // the top y-axis label do not clip against the viewBox edge.
   const TOP_PAD = 10;
   const TICK_TARGET = 4;
 
@@ -119,7 +122,7 @@
     tooltip = null;
   }
 
-  const intervals: ReportInterval[] = $derived(report.intervals ?? []);
+  const intervals = $derived(report.intervals ?? []);
   const bySession = $derived(
     new Map<string, SessionRow>(
       (report.by_session ?? []).map((r) => [r.session_id, r]),
@@ -137,6 +140,10 @@
     return { startMs: Date.parse(b.start), endMs: Date.parse(b.end) };
   }
 
+  // Clicking a bucket hands its active-session membership to the parent, which
+  // owns the page-local sessions-table filter. Clicking the already selected
+  // bucket clears the filter. The parent resets `selectedBucket` to null
+  // whenever the report reloads, so a stale slot never points at a wrong bucket.
   function selectSlot(idx: number) {
     if (!onSelectBucket) return;
     if (selectedBucket === idx) {
@@ -161,6 +168,9 @@
     }
   }
 
+  // Optional secondary series overlaid on the bars: none, output tokens, or
+  // cost. Each metric scales to its own max so the line reads as a shape over
+  // the concurrency bars, not an absolute count on the agent axis.
   let overlayMetric = $state<"none" | "tokens" | "cost">("none");
   const overlayOptions: TypeaheadOption[] = $derived([
     { name: "none", label: m.activity_overlay_none(), displayLabel: m.activity_overlay_none() },
@@ -217,6 +227,7 @@
   const rangeEndMs = $derived(Date.parse(report.range_end));
   const rangeSpanMs = $derived(Math.max(rangeEndMs - rangeStartMs, 1));
 
+  // x pixel for a given instant within the range.
   function xForMs(ms: number): number {
     return Y_LABEL_W + ((ms - rangeStartMs) / rangeSpanMs) * plotWidth;
   }
@@ -254,6 +265,8 @@
     return h - (val / max) * plotH;
   }
 
+  // Each bucket owns a full contiguous cell [cellX, cellX+cellW); the visible
+  // bar is inset by a small gap. Strip cells and hit targets reuse the cell.
   const bars = $derived.by(() => {
     const out: Array<{
       x: number;
@@ -276,6 +289,9 @@
       const cellW = Math.max(((bEnd - bStart) / rangeSpanMs) * plotWidth, 1);
       const barGap = Math.min(cellW * 0.2, 2);
       const top = scaleY(b.max_agents, scale.max, CHART_H);
+      // Split the peak bar into a blue interactive base and an orange automated
+      // cap. interactive_at_peak + automated_at_peak == max_agents, so the two
+      // segments stack to the full bar; interactiveTop is the seam between them.
       const interactiveTop = scaleY(b.interactive_at_peak, scale.max, CHART_H);
       out.push({
         x: cellX + barGap / 2,
@@ -342,6 +358,7 @@
     return ticks;
   });
 
+  // Local clock fields in the report timezone, used to pick tick boundaries.
   function localHour(ms: number): number {
     return Number(
       new Date(ms).toLocaleString("en-US", {
@@ -408,6 +425,7 @@
     return minuteUnitTicks();
   });
 
+  // Partial future region: shade from effective_end to range_end.
   const effEndMs = $derived(Date.parse(report.effective_end));
   const futureStartMs = $derived(Math.min(effEndMs, rangeEndMs));
   const futureX = $derived(xForMs(futureStartMs));
@@ -555,6 +573,7 @@
         </text>
       {/each}
 
+      <!-- Active/idle strip: one full-width cell per elapsed bucket. -->
       {#each bars as bar (bar.idx)}
         {@const b = buckets[bar.idx]}
         <rect
@@ -576,6 +595,9 @@
         />
       {/if}
 
+      <!-- Transparent full-cell per-bucket hover/click target (one per bucket).
+           data-bucket-bar lives here, not on the visible bar, because the hover
+           handler that drives the tooltip is on this interactive rect. -->
       {#each bars as bar (bar.idx)}
         {@const b = buckets[bar.idx]}
         <rect
