@@ -64,9 +64,9 @@ func SQLiteQueryDialect() QueryDialect {
 		dateExpr: "date(COALESCE(NULLIF(started_at, ''), " +
 			"created_at))",
 		dateParam:              func(ph string) string { return ph },
-		activityExpr:           "COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at)",
+		activityExpr:           activityCoalesceSQLite,
 		activityParam:          func(ph string) string { return ph },
-		cursorActivityExpr:     "COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at)",
+		cursorActivityExpr:     activityCoalesceSQLite,
 		cursorParam:            func(ph string) string { return ph },
 		castCursor:             func(ph string, _ valueKind) string { return ph },
 		emptyStringIsNull:      true,

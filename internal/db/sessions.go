@@ -503,11 +503,14 @@ const activeWindow = 10 * time.Minute
 // idle duration with an orphan tool call, the session is "unclean".
 const staleWindow = 60 * time.Minute
 
+const activityCoalesceSQLite = "COALESCE(NULLIF(ended_at, ''), " +
+	"NULLIF(started_at, ''), created_at)"
+
 // activityExprSQLite computes seconds-since-epoch of the most
 // recent activity timestamp. Used by both sessions and analytics
 // filters when classifying by status.
 const activityExprSQLite = "CAST(strftime('%s', " +
-	"COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at)) AS INTEGER)"
+	activityCoalesceSQLite + ") AS INTEGER)"
 
 const sidebarActivityExprSQLiteS = "COALESCE(" +
 	"NULLIF(s.ended_at, ''), NULLIF(s.started_at, ''), s.created_at)"
@@ -2476,7 +2479,7 @@ func (db *DB) GetBranches(
 		q += " AND is_automated = 0"
 	}
 	q += ` GROUP BY project, git_branch
-		ORDER BY MAX(COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at)) DESC,
+		ORDER BY MAX(` + activityCoalesceSQLite + `) DESC,
 			project, git_branch`
 	rows, err := db.getReader().QueryContext(ctx, q)
 	if err != nil {

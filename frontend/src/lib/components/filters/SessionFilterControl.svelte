@@ -2,7 +2,6 @@
   import type { Snippet } from "svelte";
   import { m } from "../../i18n/index.js";
   import { sessions } from "../../stores/sessions.svelte.js";
-  import { branchFilterToken } from "../../branchFilters.js";
   import { router } from "../../stores/router.svelte.js";
   import { hasSessionRouteDateIntent } from "../../stores/sessionRouteParams.js";
   import { starred } from "../../stores/starred.svelte.js";
@@ -404,15 +403,14 @@
           />
         {/if}
         <div class="agent-select-list">
-          {#each visibleBranches as branch (branchFilterToken(branch.project, branch.branch))}
-            {@const token = branchFilterToken(branch.project, branch.branch)}
-            {@const selected = sessions.isBranchSelected(token)}
+          {#each visibleBranches as branch (branch.token)}
+            {@const selected = sessions.isBranchSelected(branch.token)}
             <button
               class="agent-select-row"
               class:selected
               style:--agent-color={"var(--accent-blue)"}
               style:--agent-foreground={"var(--accent-blue-foreground)"}
-              onclick={() => sessions.toggleBranchFilter(token)}
+              onclick={() => sessions.toggleBranchFilter(branch.token)}
             >
               <span
                 class="agent-check"

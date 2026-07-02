@@ -1125,7 +1125,7 @@ func (s *Store) GetBranches(
 		q += " AND is_automated = FALSE"
 	}
 	q += ` GROUP BY project, git_branch
-		ORDER BY MAX(COALESCE(ended_at, started_at, created_at)) DESC NULLS LAST,
+		ORDER BY MAX(` + pgActivityExpr + `) DESC NULLS LAST,
 			project, git_branch`
 	rows, err := s.pg.QueryContext(ctx, q)
 	if err != nil {

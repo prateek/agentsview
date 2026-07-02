@@ -24,14 +24,12 @@ const (
 
 const dataVersionTooNewExitCode = 3
 
-// branchFilterToken builds the (project, branch) filter token; a branch needs a
-// project to scope it (like the MCP tools), so it errors without --project.
 func branchFilterToken(project, branch string) (string, error) {
 	if branch == "" {
 		return "", nil
 	}
 	if project == "" {
-		return "", fmt.Errorf("--branch requires --project")
+		return "", errors.New("--branch requires --project")
 	}
 	return db.EncodeBranchFilterToken(project, branch), nil
 }

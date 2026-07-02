@@ -5,6 +5,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -49,6 +50,16 @@ func sessionActivity(s db.Session) string {
 		return ts
 	}
 	return s.CreatedAt
+}
+
+func mcpBranchToken(project, branch string) (string, error) {
+	if branch == "" {
+		return "", nil
+	}
+	if project == "" {
+		return "", errors.New("git_branch requires project")
+	}
+	return db.EncodeBranchFilterToken(project, branch), nil
 }
 
 // isSystemMessage reports whether a message is system content that
@@ -194,14 +205,15 @@ type listSessionsOut struct {
 func (t *toolset) listSessions(
 	ctx context.Context, _ *mcp.CallToolRequest, in listSessionsIn,
 ) (*mcp.CallToolResult, listSessionsOut, error) {
-	if in.GitBranch != "" && in.Project == "" {
-		return nil, listSessionsOut{}, fmt.Errorf("git_branch requires project")
+	gitBranch, err := mcpBranchToken(in.Project, in.GitBranch)
+	if err != nil {
+		return nil, listSessionsOut{}, err
 	}
 	res, err := t.svc.List(ctx, service.ListFilter{
 		Project:          in.Project,
 		Agent:            in.Agent,
 		Machine:          in.Machine,
-		GitBranch:        mcpBranchToken(in.Project, in.GitBranch),
+		GitBranch:        gitBranch,
 		DateFrom:         in.DateFrom,
 		DateTo:           in.DateTo,
 		ActiveSince:      in.ActiveSince,
@@ -435,15 +447,16 @@ type searchContentOut struct {
 func (t *toolset) searchContent(
 	ctx context.Context, _ *mcp.CallToolRequest, in searchContentIn,
 ) (*mcp.CallToolResult, searchContentOut, error) {
-	if in.GitBranch != "" && in.Project == "" {
-		return nil, searchContentOut{}, fmt.Errorf("git_branch requires project")
+	gitBranch, err := mcpBranchToken(in.Project, in.GitBranch)
+	if err != nil {
+		return nil, searchContentOut{}, err
 	}
 	res, err := t.svc.SearchContent(ctx, service.ContentSearchRequest{
 		Pattern:   in.Pattern,
 		Mode:      in.Mode,
 		Project:   in.Project,
 		Agent:     in.Agent,
-		GitBranch: mcpBranchToken(in.Project, in.GitBranch),
+		GitBranch: gitBranch,
 		DateFrom:  in.DateFrom,
 		DateTo:    in.DateTo,
 		Limit:     clampLimit(in.Limit, defaultSearchLimit, maxSearchLimit),
@@ -498,21 +511,12 @@ type usageSummaryIn struct {
 	GitBranch string `json:"git_branch,omitempty" jsonschema:"Filter by git branch name. Requires project; the branch is scoped to that project."`
 }
 
-// mcpBranchToken composes the filter token from a plain branch name; the MCP
-// surface is LLM-friendly. Callers reject branch-without-project, so the empty
-// guard here is defensive.
-func mcpBranchToken(project, branch string) string {
-	if project == "" || branch == "" {
-		return ""
-	}
-	return db.EncodeBranchFilterToken(project, branch)
-}
-
 func (t *toolset) usageSummary(
 	ctx context.Context, _ *mcp.CallToolRequest, in usageSummaryIn,
 ) (*mcp.CallToolResult, *service.UsageSummaryResult, error) {
-	if in.GitBranch != "" && in.Project == "" {
-		return nil, nil, fmt.Errorf("git_branch requires project")
+	gitBranch, err := mcpBranchToken(in.Project, in.GitBranch)
+	if err != nil {
+		return nil, nil, err
 	}
 	res, err := t.svc.UsageSummary(ctx, service.UsageRequest{
 		From:      in.From,
@@ -520,7 +524,7 @@ func (t *toolset) usageSummary(
 		Project:   in.Project,
 		Agent:     in.Agent,
 		Machine:   in.Machine,
-		GitBranch: mcpBranchToken(in.Project, in.GitBranch),
+		GitBranch: gitBranch,
 		// The usage summary surface counts one-shot sessions by default
 		// (matching the REST endpoint), since cost analysis wants every
 		// session, not just multi-turn ones.

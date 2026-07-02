@@ -83,7 +83,8 @@ export interface RecentlyDeletedSessions {
 export interface Filters {
   project: string;
   machine: string;
-  // branch is a BRANCH_LIST_SEP-joined list of opaque (project, branch) tokens (branchFilterToken).
+  // branch is a BRANCH_LIST_SEP-joined list of opaque (project, branch)
+  // tokens from the /branches endpoint.
   branch: string;
   agent: string;
   termination: string;
@@ -1231,6 +1232,8 @@ class SessionsStore {
   }
 
   invalidateFilterCaches() {
+    // Branches load lazily on first dropdown open, so unlike the always-loaded
+    // lists below, only refresh them if something already requested them.
     const reloadBranches =
       this.branchesLoaded || this.branchesPromise !== null;
     this.projectsVersion++;
