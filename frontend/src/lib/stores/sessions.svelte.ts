@@ -173,6 +173,20 @@ function hasDateFilters(f: Filters): boolean {
   return !!(f.date || f.dateFrom || f.dateTo);
 }
 
+// toggleListValue adds value to a sep-joined list string, or removes it when
+// already present. Shared by the multi-select filters (machine, agent,
+// branch), which differ only in field and separator.
+function toggleListValue(list: string, value: string, sep: string): string {
+  const current = list ? list.split(sep) : [];
+  const idx = current.indexOf(value);
+  if (idx >= 0) {
+    current.splice(idx, 1);
+  } else {
+    current.push(value);
+  }
+  return current.join(sep);
+}
+
 export function splitExcludeProjectParam(
   raw: string | undefined,
 ): {
@@ -930,16 +944,7 @@ class SessionsStore {
   }
 
   toggleMachineFilter(machine: string) {
-    const current = this.filters.machine
-      ? this.filters.machine.split(",")
-      : [];
-    const idx = current.indexOf(machine);
-    if (idx >= 0) {
-      current.splice(idx, 1);
-    } else {
-      current.push(machine);
-    }
-    this.filters.machine = current.join(",");
+    this.filters.machine = toggleListValue(this.filters.machine, machine, ",");
     this.setActiveSession(null);
     this.load();
   }
@@ -955,14 +960,11 @@ class SessionsStore {
   }
 
   toggleBranchFilter(token: string) {
-    const current = [...this.selectedBranches];
-    const idx = current.indexOf(token);
-    if (idx >= 0) {
-      current.splice(idx, 1);
-    } else {
-      current.push(token);
-    }
-    this.filters.branch = current.join(BRANCH_LIST_SEP);
+    this.filters.branch = toggleListValue(
+      this.filters.branch,
+      token,
+      BRANCH_LIST_SEP,
+    );
     this.setActiveSession(null);
     this.load();
   }
@@ -983,16 +985,7 @@ class SessionsStore {
   }
 
   toggleAgentFilter(agent: string) {
-    const current = this.filters.agent
-      ? this.filters.agent.split(",")
-      : [];
-    const idx = current.indexOf(agent);
-    if (idx >= 0) {
-      current.splice(idx, 1);
-    } else {
-      current.push(agent);
-    }
-    this.filters.agent = current.join(",");
+    this.filters.agent = toggleListValue(this.filters.agent, agent, ",");
     this.setActiveSession(null);
     this.load();
   }
