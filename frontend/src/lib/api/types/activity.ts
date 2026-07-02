@@ -4,6 +4,7 @@ import type {
   ActivityReportInterval,
   ActivitySessionRow,
   ActivityKeyMinutes,
+  ActivityBranchKeyMinutes,
 } from "../generated/index";
 
 export type Bucket = ActivityBucket;
@@ -12,6 +13,7 @@ export type SessionRow = Omit<ActivitySessionRow, "models"> & {
   models: string[] | null;
 };
 export type KeyMinutes = ActivityKeyMinutes;
+export type BranchKeyMinutes = ActivityBranchKeyMinutes;
 
 // Report narrows the generated model's `any[] | null` collections (the
 // codegen degrades huma's nullable arrays) to their element types. The
@@ -29,7 +31,7 @@ export type Report = Omit<
 > & {
   buckets: Bucket[] | null;
   by_agent: KeyMinutes[] | null;
-  by_branch: KeyMinutes[] | null;
+  by_branch: BranchKeyMinutes[] | null;
   by_model: KeyMinutes[] | null;
   by_project: KeyMinutes[] | null;
   by_session: SessionRow[] | null;

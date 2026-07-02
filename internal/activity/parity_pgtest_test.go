@@ -341,7 +341,10 @@ func canonicalizeReport(r *activity.Report) {
 		return r.ByAgent[i].Key < r.ByAgent[j].Key
 	})
 	sort.Slice(r.ByBranch, func(i, j int) bool {
-		return r.ByBranch[i].Key < r.ByBranch[j].Key
+		if r.ByBranch[i].Project != r.ByBranch[j].Project {
+			return r.ByBranch[i].Project < r.ByBranch[j].Project
+		}
+		return r.ByBranch[i].Branch < r.ByBranch[j].Branch
 	})
 	sort.Slice(r.BySession, func(i, j int) bool {
 		return r.BySession[i].SessionID < r.BySession[j].SessionID
@@ -476,22 +479,20 @@ func assertDayMinuteFixtureSanity(t *testing.T, r activity.Report) {
 	require.Equal(t, "model-x", bySession["parity-f"].PrimaryModel,
 		"zero-cost usage still reports its known model as primary")
 
-	// Building the expected keys with db.EncodeBranchFilterToken asserts that
-	// ByBranch keys round-trip as branch filter tokens, not just that the
-	// bucketing is right. Empty branches survive only when they carry minutes
-	// or cost.
-	byBranch := map[string]activity.KeyMinutes{}
+	// Empty branches survive only when they carry minutes or cost.
+	type branchKey struct{ project, branch string }
+	byBranch := map[branchKey]activity.BranchKeyMinutes{}
 	for _, b := range r.ByBranch {
-		byBranch[b.Key] = b
+		byBranch[branchKey{b.Project, b.Branch}] = b
 	}
-	require.Contains(t, byBranch, db.EncodeBranchFilterToken("alpha", "main"),
+	require.Contains(t, byBranch, branchKey{"alpha", "main"},
 		"alpha/main bucket")
-	require.Contains(t, byBranch, db.EncodeBranchFilterToken("beta", "main"),
+	require.Contains(t, byBranch, branchKey{"beta", "main"},
 		"beta/main is distinct from alpha/main under the (project, branch) grain")
-	require.Contains(t, byBranch, db.EncodeBranchFilterToken("alpha", "feature-x"),
+	require.Contains(t, byBranch, branchKey{"alpha", "feature-x"},
 		"a project can carry multiple branches")
-	require.Contains(t, byBranch, db.EncodeBranchFilterToken("gamma", ""),
+	require.Contains(t, byBranch, branchKey{"gamma", ""},
 		"empty branch bucket")
-	require.NotContains(t, byBranch, db.EncodeBranchFilterToken("delta", ""),
+	require.NotContains(t, byBranch, branchKey{"delta", ""},
 		"zero-cost zero-minute branch bucket is dropped like any zero row")
 }

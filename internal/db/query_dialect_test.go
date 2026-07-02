@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"go.kenn.io/agentsview/internal/activity"
 )
 
 func encodeBranchFilterTokensForTest(branches ...BranchInfo) string {
@@ -255,18 +253,6 @@ func TestBuildSessionFilterSQLRendersBranchPairs(t *testing.T) {
 			assert.Equal(t, []any{"laptop", "alpha", "", "alpha", "unknown", "claude"}, args)
 		})
 	}
-}
-
-func TestBranchFilterTokenDecodesAsActivityBranchKey(t *testing.T) {
-	// The activity report keys its ByBranch rollup with the same separator as
-	// EncodeBranchFilterToken so rollup keys round-trip as filter tokens. The
-	// packages cannot share the constant without an import cycle, so this pins
-	// the equivalence: on divergence BranchKeyLabel finds no separator and
-	// returns the raw token.
-	assert.Equal(t, "alpha/main",
-		activity.BranchKeyLabel(EncodeBranchFilterToken("alpha", "main")))
-	assert.Equal(t, "alpha/(no branch)",
-		activity.BranchKeyLabel(EncodeBranchFilterToken("alpha", "")))
 }
 
 func TestBranchPairClauseArgsKeepsEmptyBranchDistinct(t *testing.T) {

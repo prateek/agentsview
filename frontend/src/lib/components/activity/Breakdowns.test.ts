@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mount, tick, unmount } from "svelte";
 import Breakdowns from "./Breakdowns.svelte";
 import type { Report } from "../../api/types.js";
-import { BRANCH_TOKEN_SEP, branchFilterToken } from "../../branchFilters.js";
+import { BRANCH_TOKEN_SEP } from "../../branchFilters.js";
 
 function makeReport(): Report {
   return {
@@ -163,20 +163,20 @@ describe("Breakdowns", () => {
     target.remove();
   });
 
-  it("renders branch keys as project/branch labels, never raw tokens", async () => {
+  it("renders branch rows as project/branch labels, never raw tokens", async () => {
     const report = makeReport();
     report.by_branch = [
       {
-        key: branchFilterToken("alpha", "main"), agent_minutes: 12, cost: 0,
+        project: "alpha", branch: "main", agent_minutes: 12, cost: 0,
         interactive_agent_minutes: 12, automated_agent_minutes: 0,
         interactive_cost: 0, automated_cost: 0,
       },
       {
-        key: branchFilterToken("alpha", ""), agent_minutes: 3, cost: 0,
+        project: "alpha", branch: "", agent_minutes: 3, cost: 0,
         interactive_agent_minutes: 3, automated_agent_minutes: 0,
         interactive_cost: 0, automated_cost: 0,
       },
-    ] as Report["by_branch"];
+    ];
     const target = document.createElement("div");
     document.body.appendChild(target);
     const c = mount(Breakdowns, { target, props: { report } });

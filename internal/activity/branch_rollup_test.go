@@ -27,24 +27,16 @@ func TestSessionsTable_ByBranch(t *testing.T) {
 	}
 	r := Aggregate(p, sessions, nil, usage)
 
-	byBranch := map[string]KeyMinutes{}
+	byBranch := map[branchPair]BranchKeyMinutes{}
 	for _, b := range r.ByBranch {
-		byBranch[b.Key] = b
+		byBranch[branchPair{Project: b.Project, Branch: b.Branch}] = b
 	}
 	require.Len(t, r.ByBranch, 5, "one bucket per distinct (project, branch)")
-	assert.InDelta(t, 1.0, byBranch[branchBreakdownKey("proj1", "main")].Cost, 1e-9)
-	assert.InDelta(t, 2.0, byBranch[branchBreakdownKey("proj1", "feature-x")].Cost, 1e-9)
-	assert.InDelta(t, 3.0, byBranch[branchBreakdownKey("proj2", "main")].Cost, 1e-9,
+	assert.InDelta(t, 1.0, byBranch[branchPair{"proj1", "main"}].Cost, 1e-9)
+	assert.InDelta(t, 2.0, byBranch[branchPair{"proj1", "feature-x"}].Cost, 1e-9)
+	assert.InDelta(t, 3.0, byBranch[branchPair{"proj2", "main"}].Cost, 1e-9,
 		"proj2/main is distinct from proj1/main")
-	assert.InDelta(t, 4.0, byBranch[branchBreakdownKey("proj1", "")].Cost, 1e-9,
+	assert.InDelta(t, 4.0, byBranch[branchPair{"proj1", ""}].Cost, 1e-9,
 		"empty branch stays distinct from a branch named unknown")
-	assert.InDelta(t, 5.0, byBranch[branchBreakdownKey("proj1", "unknown")].Cost, 1e-9)
-}
-
-func TestBranchKeyLabel(t *testing.T) {
-	assert.Equal(t, "proj/main", BranchKeyLabel(branchBreakdownKey("proj", "main")))
-	assert.Equal(t, "proj/(no branch)", BranchKeyLabel(branchBreakdownKey("proj", "")))
-	assert.Equal(t, "(no branch)", BranchKeyLabel(branchBreakdownKey("", "")))
-	assert.Equal(t, "proj/unknown", BranchKeyLabel(branchBreakdownKey("proj", "unknown")))
-	assert.Equal(t, "plain", BranchKeyLabel("plain"))
+	assert.InDelta(t, 5.0, byBranch[branchPair{"proj1", "unknown"}].Cost, 1e-9)
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "../../i18n/index.js";
   import type { KeyMinutes, Report } from "../../api/types.js";
-  import { branchTokenLabel } from "../../branchFilters.js";
+  import { branchFilterToken, branchTokenLabel } from "../../branchFilters.js";
 
   let { report }: { report: Report } = $props();
 
@@ -37,7 +37,16 @@
   const byProject = $derived(rankedRows(report.by_project));
   const byModel = $derived(rankedRows(report.by_model));
   const byAgent = $derived(rankedRows(report.by_agent));
-  const byBranch = $derived(rankedRows(report.by_branch));
+  // by_branch has typed project/branch fields, not a token; synthesize one
+  // here so this panel shares the other panels' row shape.
+  const byBranch = $derived(
+    rankedRows(
+      (report.by_branch ?? []).map((b) => ({
+        ...b,
+        key: branchFilterToken(b.project, b.branch),
+      })),
+    ),
+  );
 
   interface Panel {
     title: string;
