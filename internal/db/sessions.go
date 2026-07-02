@@ -2453,12 +2453,14 @@ type BranchInfo struct {
 // GetBranches returns distinct (project, git_branch) pairs, including the empty
 // branch used for sessions with no recorded branch. Scoping matches
 // GetProjects/GetAgents (root sessions with messages) so the dropdown reflects
-// real work rather than subagents.
+// real work rather than subagents. Pairs are ordered by most recent session
+// activity so active branches surface first in long lists, with the pair
+// itself as a deterministic tiebreaker.
 func (db *DB) GetBranches(
 	ctx context.Context,
 	excludeOneShot, excludeAutomated bool,
 ) ([]BranchInfo, error) {
-	q := `SELECT DISTINCT project, git_branch
+	q := `SELECT project, git_branch
 		FROM sessions
 		WHERE message_count > 0
 		  AND relationship_type NOT IN ('subagent', 'fork')
@@ -2473,7 +2475,9 @@ func (db *DB) GetBranches(
 	if excludeAutomated {
 		q += " AND is_automated = 0"
 	}
-	q += " ORDER BY project, git_branch"
+	q += ` GROUP BY project, git_branch
+		ORDER BY MAX(COALESCE(NULLIF(ended_at, ''), NULLIF(started_at, ''), created_at)) DESC,
+			project, git_branch`
 	rows, err := db.getReader().QueryContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("querying branches: %w", err)

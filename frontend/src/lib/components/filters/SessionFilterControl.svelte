@@ -67,15 +67,11 @@
     return machines.filter((m) => m.toLowerCase().includes(q));
   });
 
-  const sortedBranches = $derived.by(() => {
-    const branches = [...sessions.branches].sort((a, b) =>
-      a.project === b.project
-        ? a.branch.localeCompare(b.branch)
-        : a.project.localeCompare(b.project),
-    );
-    if (!branchSearch) return branches;
+  // Server order is most-recent-activity first; only filter, never re-sort.
+  const visibleBranches = $derived.by(() => {
+    if (!branchSearch) return sessions.branches;
     const q = branchSearch.toLowerCase();
-    return branches.filter(
+    return sessions.branches.filter(
       (b) =>
         b.branch.toLowerCase().includes(q) ||
         b.project.toLowerCase().includes(q),
@@ -408,7 +404,7 @@
           />
         {/if}
         <div class="agent-select-list">
-          {#each sortedBranches as branch (branchFilterToken(branch.project, branch.branch))}
+          {#each visibleBranches as branch (branchFilterToken(branch.project, branch.branch))}
             {@const token = branchFilterToken(branch.project, branch.branch)}
             {@const selected = sessions.isBranchSelected(token)}
             <button
