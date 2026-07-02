@@ -154,4 +154,46 @@ describe("CostTimeSeriesChart", () => {
 
     unmount(component);
   });
+
+  it("renders branch legend labels, not raw tokens", async () => {
+    const summary = usageSummary();
+    for (const day of summary.daily) {
+      day.branchBreakdowns = [
+        {
+          project: "agentsview",
+          branch: "main",
+          inputTokens: 80,
+          outputTokens: 40,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          cost: 8,
+        },
+        {
+          project: "agentsview",
+          branch: "",
+          inputTokens: 20,
+          outputTokens: 10,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          cost: 2,
+        },
+      ];
+    }
+    usage.summary = summary;
+    usage.toggles.timeSeries.groupBy = "branch";
+
+    const component = mount(CostTimeSeriesChart, {
+      target: document.body,
+    });
+    await tick();
+
+    const legendText = Array.from(
+      document.querySelectorAll(".legend-item"),
+    ).map((el) => el.textContent!.trim());
+    expect(legendText).toContain("agentsview/main");
+    expect(legendText).toContain("agentsview/(no branch)");
+    expect(document.body.textContent).not.toContain("\u001f");
+
+    unmount(component);
+  });
 });
