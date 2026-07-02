@@ -5,6 +5,8 @@ import (
 	"go.kenn.io/agentsview/internal/service"
 )
 
+// Comparison holds the prior-period cost comparison returned by
+// GET /api/v1/usage/comparison.
 type Comparison struct {
 	PriorFrom      string  `json:"priorFrom"`
 	PriorTo        string  `json:"priorTo"`
@@ -12,6 +14,7 @@ type Comparison struct {
 	DeltaPct       float64 `json:"deltaPct"`
 }
 
+// ProjectTotal holds range-wide token and cost totals per project.
 type ProjectTotal struct {
 	Project             string  `json:"project"`
 	InputTokens         int     `json:"inputTokens"`
@@ -21,6 +24,7 @@ type ProjectTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
+// ModelTotal holds range-wide token and cost totals per model.
 type ModelTotal struct {
 	Model               string  `json:"model"`
 	InputTokens         int     `json:"inputTokens"`
@@ -30,6 +34,7 @@ type ModelTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
+// AgentTotal holds range-wide token and cost totals per agent.
 type AgentTotal struct {
 	Agent               string  `json:"agent"`
 	InputTokens         int     `json:"inputTokens"`
@@ -39,6 +44,7 @@ type AgentTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
+// BranchTotal holds range-wide token and cost totals per (project, branch).
 type BranchTotal struct {
 	Project             string  `json:"project"`
 	Branch              string  `json:"branch"`
@@ -49,6 +55,7 @@ type BranchTotal struct {
 	Cost                float64 `json:"cost"`
 }
 
+// CacheStats summarizes cache hit/miss for the period.
 type CacheStats struct {
 	CacheReadTokens     int     `json:"cacheReadTokens"`
 	CacheCreationTokens int     `json:"cacheCreationTokens"`
@@ -108,54 +115,54 @@ func unsupportedUsageFromService(
 }
 
 func projectTotalsFromService(in []service.ProjectTotal) []ProjectTotal {
-	out := make([]ProjectTotal, len(in))
-	for i, total := range in {
-		out[i] = ProjectTotal{
+	out := make([]ProjectTotal, 0, len(in))
+	for _, total := range in {
+		out = append(out, ProjectTotal{
 			Project:             total.Project,
 			InputTokens:         total.InputTokens,
 			OutputTokens:        total.OutputTokens,
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		}
+		})
 	}
 	return out
 }
 
 func modelTotalsFromService(in []service.ModelTotal) []ModelTotal {
-	out := make([]ModelTotal, len(in))
-	for i, total := range in {
-		out[i] = ModelTotal{
+	out := make([]ModelTotal, 0, len(in))
+	for _, total := range in {
+		out = append(out, ModelTotal{
 			Model:               total.Model,
 			InputTokens:         total.InputTokens,
 			OutputTokens:        total.OutputTokens,
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		}
+		})
 	}
 	return out
 }
 
 func agentTotalsFromService(in []service.AgentTotal) []AgentTotal {
-	out := make([]AgentTotal, len(in))
-	for i, total := range in {
-		out[i] = AgentTotal{
+	out := make([]AgentTotal, 0, len(in))
+	for _, total := range in {
+		out = append(out, AgentTotal{
 			Agent:               total.Agent,
 			InputTokens:         total.InputTokens,
 			OutputTokens:        total.OutputTokens,
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		}
+		})
 	}
 	return out
 }
 
 func branchTotalsFromService(in []service.BranchTotal) []BranchTotal {
-	out := make([]BranchTotal, len(in))
-	for i, total := range in {
-		out[i] = BranchTotal{
+	out := make([]BranchTotal, 0, len(in))
+	for _, total := range in {
+		out = append(out, BranchTotal{
 			Project:             total.Project,
 			Branch:              total.Branch,
 			InputTokens:         total.InputTokens,
@@ -163,7 +170,7 @@ func branchTotalsFromService(in []service.BranchTotal) []BranchTotal {
 			CacheCreationTokens: total.CacheCreationTokens,
 			CacheReadTokens:     total.CacheReadTokens,
 			Cost:                total.Cost,
-		}
+		})
 	}
 	return out
 }

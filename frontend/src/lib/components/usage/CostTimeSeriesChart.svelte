@@ -52,6 +52,7 @@
       return { points: [], keys: [], maxY: 0 };
     }
 
+    // Sum cost per key across the whole range to find top N.
     const totals = new Map<string, number>();
     for (const day of daily) {
       if (groupBy === "project" && day.projectBreakdowns) {
@@ -77,6 +78,7 @@
       }
     }
 
+    // If only one key or few keys, no need for "Other".
     if (totals.size === 0) {
       const points = daily.map((d) => ({
         date: d.date,
@@ -89,6 +91,7 @@
       return { points, keys: ["total"], maxY: maxY || 1 };
     }
 
+    // Pick top N by total cost, group the rest as "Other".
     const ranked = [...totals.entries()]
       .sort((a, b) => b[1] - a[1]);
     const topKeys = new Set(
@@ -130,6 +133,8 @@
       points.push({ date: day.date, values });
     }
 
+    // Build ordered key list: top N by cost desc, then
+    // __other__ (displayed as "Other" in legend/labels).
     const keys = ranked
       .slice(0, MAX_SERIES)
       .map(([k]) => k);
@@ -249,6 +254,7 @@
         d += i === 0 ? `M${x},${top}` : `L${x},${top}`;
       }
 
+      // Close area back along baseline
       for (let i = points.length - 1; i >= 0; i--) {
         const x = Y_LABEL_W + i * xStep;
         const base = scaleY(baselines[i]!, maxY, h);

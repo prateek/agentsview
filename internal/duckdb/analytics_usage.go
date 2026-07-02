@@ -3251,6 +3251,9 @@ func duckCursorUsageRowsSQLForBounds(
 	f db.UsageFilter, b duckUsageBounds,
 ) (string, []any, bool) {
 	hasTermFilter := f.Termination != "" && f.Termination != "all"
+	// Cursor usage rows carry no project or git branch and bypass the session
+	// filter, so any filter they cannot satisfy (project, machine, branch)
+	// must exclude them entirely rather than let them leak into totals.
 	if f.Project != "" || f.ExcludeProject != "" ||
 		f.Machine != "" || f.GitBranch != "" || f.MinUserMessages > 0 ||
 		f.ExcludeOneShot || hasTermFilter ||
@@ -3577,17 +3580,10 @@ func (s *Store) GetDailyUsage(
 		if f.Breakdowns {
 			addUsageBucket(day.projects, key.project, *b)
 			addUsageBucket(day.agents, key.agent, *b)
-			bk := branchMapKey{
+			addUsageBucket(day.branches, branchMapKey{
 				project: key.project,
 				branch:  key.gitBranch,
-			}
-			cur := day.branches[bk]
-			cur.inputTok += b.inputTok
-			cur.outputTok += b.outputTok
-			cur.cacheCr += b.cacheCr
-			cur.cacheRd += b.cacheRd
-			cur.cost += b.cost
-			day.branches[bk] = cur
+			}, *b)
 		}
 	}
 
@@ -3694,7 +3690,7 @@ func (s *Store) GetDailyUsage(
 	return result, nil
 }
 
-func addUsageBucket(m map[string]duckUsageBucket, key string, b duckUsageBucket) {
+func addUsageBucket[K comparable](m map[K]duckUsageBucket, key K, b duckUsageBucket) {
 	cur := m[key]
 	cur.inputTok += b.inputTok
 	cur.outputTok += b.outputTok

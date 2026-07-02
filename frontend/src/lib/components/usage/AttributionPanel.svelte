@@ -293,6 +293,7 @@
     color: var(--text-secondary);
   }
 
+  /* Treemap layout: main + side rail */
   .treemap-layout {
     display: grid;
     grid-template-columns: 2.4fr 1fr;
@@ -362,6 +363,7 @@
     color: var(--text-primary);
   }
 
+  /* List view */
   .list-view {
     display: flex;
     flex-direction: column;

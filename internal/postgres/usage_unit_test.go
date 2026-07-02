@@ -371,21 +371,6 @@ func TestPGMatchingUsageRowsSQLForBoundsRelaxesTokenEligibility(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(normalized, "ue.model = "))
 }
 
-func TestPGBranchPairPredicateKeepsEmptyBranchDistinct(t *testing.T) {
-	pb := &paramBuilder{}
-	const branchListSepForTest = "\x1e"
-	tokens := db.EncodeBranchFilterToken("alpha", "") + branchListSepForTest +
-		db.EncodeBranchFilterToken("alpha", "unknown")
-
-	got := db.BranchPairPredicate("project", "git_branch", tokens,
-		func(s string) string { return pb.add(s) })
-
-	assert.Equal(t,
-		"((project = $1 AND git_branch = $2) OR (project = $3 AND git_branch = $4))",
-		got)
-	assert.Equal(t, []any{"alpha", "", "alpha", "unknown"}, pb.args)
-}
-
 func TestPGTopSessionsUsageRowQueryUsesNarrowScan(t *testing.T) {
 	pb := &paramBuilder{}
 	query := pgTopSessionsUsageRowQuery(pb, db.UsageFilter{

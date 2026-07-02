@@ -1238,6 +1238,8 @@ func (s *Store) GetDailyUsage(
 			pgDailyUsageAmounts(r, rateResolver)
 		totalSavings += savings
 
+		// Branch only feeds breakdowns; totals-only queries keep the
+		// coarser key so the accumulator does not fan out per branch.
 		gitBranch := ""
 		if f.Breakdowns {
 			gitBranch = r.gitBranch

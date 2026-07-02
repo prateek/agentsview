@@ -1725,6 +1725,8 @@ func (db *DB) GetDailyUsage(
 			dailyUsageAmounts(r, rateResolver)
 		totalSavings += savings
 
+		// Branch only feeds breakdowns; totals-only queries keep the
+		// coarser key so the accumulator does not fan out per branch.
 		gitBranch := ""
 		if f.Breakdowns {
 			gitBranch = r.gitBranch
@@ -1888,6 +1890,7 @@ func (db *DB) GetDailyUsage(
 		}, nil
 	}
 
+	// Breakdown path: single walk builds model/project/agent/branch maps.
 	type branchMapKey struct {
 		project string
 		branch  string

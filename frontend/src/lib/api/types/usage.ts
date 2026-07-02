@@ -197,7 +197,6 @@ export interface UsageParams {
   to?: string;
   project?: string;
   machine?: string;
-  git_branch?: string;
   agent?: string;
   model?: string;
   exclude_project?: string;
