@@ -303,7 +303,6 @@ func printActivitySessions(rows []activity.SessionRow) {
 	w.Flush()
 }
 
-// firstN truncates to the first n rows of already-sorted input.
 func firstN[T any](rows []T, n int) []T {
 	return rows[:min(len(rows), n)]
 }

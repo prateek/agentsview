@@ -52,9 +52,6 @@ func sessionActivity(s db.Session) string {
 	return s.CreatedAt
 }
 
-// mcpBranchToken encodes the tool's separate project/git_branch params (kept
-// separate so callers never handle the opaque token) into the combined
-// filter token the service layer expects.
 func mcpBranchToken(project, branch string) (string, error) {
 	tok, err := db.BranchFilterToken(project, branch)
 	if errors.Is(err, db.ErrBranchWithoutProject) {

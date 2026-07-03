@@ -1621,8 +1621,6 @@ func paddedUTCBound(ts string, hours int) string {
 	return t.Add(time.Duration(hours) * time.Hour).Format(time.RFC3339)
 }
 
-// usageBucket accumulates token and cost totals for one key in a
-// GetDailyUsage breakdown map.
 type usageBucket struct {
 	inputTok  int
 	outputTok int
@@ -1631,8 +1629,6 @@ type usageBucket struct {
 	cost      float64
 }
 
-// addUsageBucket sums b into m[key], covering the model/project/agent/branch
-// breakdown maps with one accumulator regardless of key shape.
 func addUsageBucket[K comparable](m map[K]usageBucket, key K, b usageBucket) {
 	cur := m[key]
 	cur.inputTok += b.inputTok
@@ -1771,7 +1767,7 @@ func (db *DB) GetDailyUsage(
 	// Two paths: without breakdowns (CLI, fast) and with breakdowns
 	// (web UI). The fast path uses the original (date, model)
 	// grouping with no extra column reads. The breakdown path adds
-	// project/agent dimensions and builds three decomposition slices.
+	// project/agent/branch dimensions and builds four decomposition slices.
 
 	if !f.Breakdowns {
 		// Fast path: group by (date, model) only.

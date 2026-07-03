@@ -1153,8 +1153,6 @@ func sortedStringSetKeys(set map[string]struct{}) []string {
 	return out
 }
 
-// usageBucket accumulates token and cost totals for one key in a
-// GetDailyUsage breakdown map.
 type usageBucket struct {
 	inputTok  int
 	outputTok int
@@ -1163,8 +1161,6 @@ type usageBucket struct {
 	cost      float64
 }
 
-// addUsageBucket sums b into m[key], covering the model/project/agent/branch
-// breakdown maps with one accumulator regardless of key shape.
 func addUsageBucket[K comparable](m map[K]usageBucket, key K, b usageBucket) {
 	cur := m[key]
 	cur.inputTok += b.inputTok
