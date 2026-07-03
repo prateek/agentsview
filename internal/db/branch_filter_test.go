@@ -90,6 +90,64 @@ func TestGetDailyUsageGitBranchFilter(t *testing.T) {
 		"usage filter uses scoped (project, branch), not branch name alone")
 }
 
+func TestGetDailyUsageExcludeGitBranchFilter(t *testing.T) {
+	tests := []struct {
+		name             string
+		gitBranch        string
+		excludeGitBranch string
+		wantInput        int
+	}{
+		{
+			name:             "single pair excluded",
+			excludeGitBranch: EncodeBranchFilterToken("proj-a", "main"),
+			wantInput:        1400,
+		},
+		{
+			name: "multiple pairs excluded",
+			excludeGitBranch: encodeBranchFilterTokensForTest(
+				BranchInfo{Project: "proj-a", Branch: "main"},
+				BranchInfo{Project: "proj-b", Branch: "main"},
+			),
+			wantInput: 1100,
+		},
+		{
+			name:             "same-named branch in another project stays",
+			excludeGitBranch: EncodeBranchFilterToken("proj-b", "main"),
+			wantInput:        1200,
+		},
+		{
+			name:             "malformed token excludes nothing",
+			excludeGitBranch: "no-separator-here",
+			wantInput:        1500,
+		},
+		{
+			name: "combined with include filter",
+			gitBranch: encodeBranchFilterTokensForTest(
+				BranchInfo{Project: "proj-a", Branch: "main"},
+				BranchInfo{Project: "proj-a", Branch: "feature-x"},
+			),
+			excludeGitBranch: EncodeBranchFilterToken("proj-a", "main"),
+			wantInput:        200,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := testDB(t)
+			seedBranchUsageFixture(t, d)
+
+			daily, err := d.GetDailyUsage(context.Background(), UsageFilter{
+				From:             "2026-05-14",
+				To:               "2026-05-14",
+				GitBranch:        tt.gitBranch,
+				ExcludeGitBranch: tt.excludeGitBranch,
+			})
+			require.NoError(t, err, "GetDailyUsage")
+			require.Len(t, daily.Daily, 1, "one day")
+			assert.Equal(t, tt.wantInput, daily.Daily[0].InputTokens)
+		})
+	}
+}
+
 func TestSplitBranchFilterTokens(t *testing.T) {
 	tests := []struct {
 		name string

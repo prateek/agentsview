@@ -136,6 +136,11 @@ func appendPGUsageSessionFilterClauses(
 	}
 	where = appendCSV(where, "s.project", f.ExcludeProject, false)
 	where = appendCSV(where, "s.agent", f.ExcludeAgent, false)
+	if f.ExcludeGitBranch != "" {
+		where += "\n\tAND " + db.BranchPairExcludePredicate(
+			"s.project", "s.git_branch", f.ExcludeGitBranch,
+			func(s string) string { return pb.add(s) })
+	}
 
 	if f.MinUserMessages > 0 {
 		where += "\n\tAND s.user_message_count >= " +
@@ -742,7 +747,8 @@ func pgCursorUsageRowsSQLForBounds(
 	// filter, so any filter they cannot satisfy (project, machine, branch)
 	// must exclude them entirely rather than let them leak into totals.
 	if f.Project != "" || f.ExcludeProject != "" ||
-		f.Machine != "" || f.GitBranch != "" || f.MinUserMessages > 0 ||
+		f.Machine != "" || f.GitBranch != "" || f.ExcludeGitBranch != "" ||
+		f.MinUserMessages > 0 ||
 		f.ExcludeOneShot || hasTermFilter || f.ActiveSince != "" {
 		return "", false
 	}

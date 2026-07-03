@@ -24,7 +24,6 @@
 
   const groupBy = $derived(usage.toggles.attribution.groupBy);
   const view = $derived(usage.toggles.attribution.view);
-  const canSelectRows = $derived(groupBy !== "branch");
   const noBranchLabel = $derived(m.shared_no_branch());
 
   interface Row {
@@ -102,6 +101,8 @@
       usage.toggleAgent(id);
     } else if (groupBy === "model") {
       usage.toggleModel(id);
+    } else if (groupBy === "branch") {
+      usage.toggleBranch(id);
     }
   }
 
@@ -170,16 +171,14 @@
   {#if rows.length === 0}
     <div class="empty">{m.shared_no_data_for_period()}</div>
   {:else}
-    {#if canSelectRows}
-      <div class="hint">{m.usage_click_to_hide_hint()}</div>
-    {/if}
+    <div class="hint">{m.usage_click_to_hide_hint()}</div>
     {#if view === "treemap"}
       <div class="treemap-layout">
         <div class="treemap-main">
           <Treemap
             items={treemapItems}
             height={260}
-            onSelect={canSelectRows ? handleSelect : undefined}
+            onSelect={handleSelect}
           />
         </div>
         <div class="side-rail">
@@ -188,9 +187,8 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="rail-row"
-              class:interactive={canSelectRows}
-              title={canSelectRows ? m.usage_click_to_hide({ label: row.label }) : undefined}
-              onclick={canSelectRows ? () => handleSelect(row.id) : undefined}
+              title={m.usage_click_to_hide({ label: row.label })}
+              onclick={() => handleSelect(row.id)}
             >
               <span class="rail-rank">{i + 1}</span>
               <span
@@ -210,9 +208,8 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="list-row"
-            class:interactive={canSelectRows}
-            title={canSelectRows ? m.usage_click_to_hide({ label: row.label }) : undefined}
-            onclick={canSelectRows ? () => handleSelect(row.id) : undefined}
+            title={m.usage_click_to_hide({ label: row.label })}
+            onclick={() => handleSelect(row.id)}
           >
             <span class="list-rank">{i + 1}</span>
             <span
@@ -320,14 +317,11 @@
     gap: 6px;
     padding: 3px 4px;
     border-radius: var(--radius-sm);
+    cursor: pointer;
     transition: background 0.1s;
   }
 
-  .rail-row.interactive {
-    cursor: pointer;
-  }
-
-  .rail-row.interactive:hover {
+  .rail-row:hover {
     background: var(--bg-surface-hover);
   }
 
@@ -376,14 +370,11 @@
     gap: 8px;
     padding: 4px 6px;
     border-radius: var(--radius-sm);
+    cursor: pointer;
     transition: background 0.1s;
   }
 
-  .list-row.interactive {
-    cursor: pointer;
-  }
-
-  .list-row.interactive:hover {
+  .list-row:hover {
     background: var(--bg-surface-hover);
   }
 

@@ -13,6 +13,7 @@ import {
 import { sessions } from "./sessions.svelte.js";
 import { perf, type PerfEntryStatus } from "./perf.svelte.js";
 import { daysAgo, today } from "../utils/dates.js";
+import { BRANCH_LIST_SEP } from "../branchFilters.js";
 
 type UsageParams = Parameters<typeof UsageService.getApiV1UsageSummary>[0];
 type UsagePairwiseParams =
@@ -112,6 +113,7 @@ const USAGE_FILTERS_KEY = "usage-filters";
 export interface UsageFilterState {
   excludedProjects: string;
   excludedAgents: string;
+  excludedGitBranch: string;
   excludedModels: string;
   selectedModels: string;
 }
@@ -124,6 +126,7 @@ function loadUsageFilters(): UsageFilterState {
       return {
         excludedProjects: saved.excludedProjects ?? "",
         excludedAgents: saved.excludedAgents ?? "",
+        excludedGitBranch: saved.excludedGitBranch ?? "",
         excludedModels: "",
         selectedModels: saved.selectedModels ?? "",
       };
@@ -134,6 +137,7 @@ function loadUsageFilters(): UsageFilterState {
   return {
     excludedProjects: "",
     excludedAgents: "",
+    excludedGitBranch: "",
     excludedModels: "",
     selectedModels: "",
   };
@@ -144,6 +148,7 @@ function saveUsageFilters(f: UsageFilterState): void {
     const data: UsageFilterState = {
       excludedProjects: f.excludedProjects,
       excludedAgents: f.excludedAgents,
+      excludedGitBranch: f.excludedGitBranch,
       excludedModels: f.excludedModels,
       selectedModels: f.selectedModels,
     };
@@ -197,6 +202,7 @@ class UsageStore {
   // Initialized from localStorage to survive tab switches.
   excludedProjects: string = $state("");
   excludedAgents: string = $state("");
+  excludedGitBranch: string = $state("");
   excludedModels: string = $state("");
   selectedModels: string = $state("");
 
@@ -204,6 +210,7 @@ class UsageStore {
     const saved = loadUsageFilters();
     this.excludedProjects = saved.excludedProjects;
     this.excludedAgents = saved.excludedAgents;
+    this.excludedGitBranch = saved.excludedGitBranch;
     this.excludedModels = saved.excludedModels;
     this.selectedModels = saved.selectedModels;
   }
@@ -287,6 +294,9 @@ class UsageStore {
       );
     } else if (this.excludedProjects) {
       p.excludeProject = this.excludedProjects;
+    }
+    if (this.excludedGitBranch) {
+      p.excludeGitBranch = this.excludedGitBranch;
     }
     if (this.selectedModels) {
       p.model = this.selectedModels;
@@ -437,15 +447,22 @@ class UsageStore {
     this.fetchAll();
   }
 
-  private toggleCsv(csv: string, name: string): string {
-    const current = csv ? csv.split(",") : [];
+  toggleBranch(token: string): void {
+    this.excludedGitBranch = this.toggleCsv(
+      this.excludedGitBranch, token, BRANCH_LIST_SEP,
+    );
+    this.fetchAll();
+  }
+
+  private toggleCsv(csv: string, name: string, sep = ","): string {
+    const current = csv ? csv.split(sep) : [];
     const idx = current.indexOf(name);
     if (idx >= 0) {
       current.splice(idx, 1);
     } else {
       current.push(name);
     }
-    return current.join(",");
+    return current.join(sep);
   }
 
   // An item is "excluded" if it appears in the excluded CSV.
@@ -470,6 +487,13 @@ class UsageStore {
     return this.selectedModels.split(",").includes(name);
   }
 
+  isBranchExcluded(token: string): boolean {
+    if (!this.excludedGitBranch) return false;
+    return this.excludedGitBranch
+      .split(BRANCH_LIST_SEP)
+      .includes(token);
+  }
+
   selectAllProjects(): void {
     this.excludedProjects = "";
     this.fetchAll();
@@ -490,6 +514,16 @@ class UsageStore {
     this.fetchAll();
   }
 
+  selectAllBranches(): void {
+    this.excludedGitBranch = "";
+    this.fetchAll();
+  }
+
+  deselectAllBranches(all: string[]): void {
+    this.excludedGitBranch = all.join(BRANCH_LIST_SEP);
+    this.fetchAll();
+  }
+
   selectAllModels(): void {
     this.selectedModels = "";
     this.excludedModels = "";
@@ -505,13 +539,18 @@ class UsageStore {
   clearFilters(): void {
     this.excludedProjects = "";
     this.excludedAgents = "";
+    this.excludedGitBranch = "";
     this.excludedModels = "";
     this.selectedModels = "";
     this.fetchAll();
   }
 
   get hasActiveFilters(): boolean {
-    return this.excludedProjects !== "" || this.selectedModels !== "";
+    return (
+      this.excludedProjects !== "" ||
+      this.excludedGitBranch !== "" ||
+      this.selectedModels !== ""
+    );
   }
 
   get isQuerying(): boolean {
@@ -880,6 +919,7 @@ export interface UsageUrlState {
   windowDays: number;
   excludedProjects: string;
   excludedAgents: string;
+  excludedGitBranch: string;
   excludedModels: string;
   selectedModels: string;
 }
@@ -918,6 +958,9 @@ export function buildUsageUrlParams(
   }
   if (state.excludedProjects) {
     params["exclude_project"] = state.excludedProjects;
+  }
+  if (state.excludedGitBranch) {
+    params["exclude_git_branch"] = state.excludedGitBranch;
   }
   return params;
 }

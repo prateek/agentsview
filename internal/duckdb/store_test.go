@@ -2667,4 +2667,27 @@ func TestDuckDBBranchDimension(t *testing.T) {
 		total += day.InputTokens
 	}
 	assert.Equal(t, 100, total, "branch filter restricts usage to alpha/main")
+
+	excluded, err := store.GetDailyUsage(ctx, db.UsageFilter{
+		From: "2026-01-01", To: "2026-12-31", Breakdowns: true,
+		ExcludeGitBranch: db.EncodeBranchFilterToken("alpha", "main"),
+	})
+	require.NoError(t, err)
+	total = 0
+	for _, day := range excluded.Daily {
+		total += day.InputTokens
+	}
+	assert.Equal(t, 1400, total,
+		"exclude filter drops only alpha/main, beta/main stays")
+
+	malformed, err := store.GetDailyUsage(ctx, db.UsageFilter{
+		From: "2026-01-01", To: "2026-12-31", Breakdowns: true,
+		ExcludeGitBranch: "no-separator-here",
+	})
+	require.NoError(t, err)
+	total = 0
+	for _, day := range malformed.Daily {
+		total += day.InputTokens
+	}
+	assert.Equal(t, 1500, total, "malformed exclude token excludes nothing")
 }

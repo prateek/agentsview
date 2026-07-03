@@ -30,6 +30,7 @@
   import SessionFilterControl from "../filters/SessionFilterControl.svelte";
   import SessionActiveFilters from "../filters/SessionActiveFilters.svelte";
   import FilterDropdown from "./FilterDropdown.svelte";
+  import { branchLabel, BRANCH_LIST_SEP } from "../../branchFilters.js";
   import RefreshControl from "../shared/RefreshControl.svelte";
   import {
     yokedDates,
@@ -47,6 +48,14 @@
       count: p.session_count,
     })),
   );
+
+  const branchItems = $derived(
+    sessions.branches.map((b) => ({
+      name: b.token,
+      label: branchLabel(b.project, b.branch, m.shared_no_branch()),
+    })),
+  );
+
 
   const earliestSession = $derived(sync.stats?.earliest_session ?? null);
 
@@ -169,7 +178,7 @@
   // apply params that are actually present in the URL.
   const USAGE_FILTER_KEYS = new Set([
     "from", "to", "window_days",
-    "model", "exclude_model",
+    "model", "exclude_model", "exclude_git_branch",
   ]);
   const SESSION_FILTER_KEYS = new Set([
     "project", "machine", "agent",
@@ -297,6 +306,11 @@
         usage.excludedProjects = newExProject;
         changed = true;
       }
+      const newExBranch = params["exclude_git_branch"] ?? "";
+      if (newExBranch !== usage.excludedGitBranch) {
+        usage.excludedGitBranch = newExBranch;
+        changed = true;
+      }
       if (usage.excludedModels) {
         usage.excludedModels = "";
         changed = true;
@@ -324,6 +338,7 @@
       windowDays: usage.windowDays,
       excludedProjects: usage.excludedProjects,
       excludedAgents: usage.excludedAgents,
+      excludedGitBranch: usage.excludedGitBranch,
       excludedModels: usage.excludedModels,
       selectedModels: usage.selectedModels,
     };
@@ -354,6 +369,9 @@
 
   onMount(() => {
     mounted = true;
+    // Branches load lazily (only the sidebar dropdown requests them), so a
+    // cold /usage load needs its own request to populate the Branch dropdown.
+    sessions.loadBranches();
     // SSE events only flag new data; RefreshControl owns the periodic refresh
     // and the manual button. The initial and filter-change fetches run from the
     // effects above once URL/filter state is hydrated.
@@ -410,6 +428,22 @@
         onSelectAll={() => usage.selectAllModels()}
         onDeselectAll={() =>
           usage.deselectAllModels(modelItems.map((m) => m.name))}
+      />
+
+      <!-- The dropdown splits its CSV on commas; branch tokens are
+           BRANCH_LIST_SEP-joined (branch names can contain commas), so adapt
+           the view here. A literal comma inside a project/branch name can
+           mis-split only this display state, never the outgoing filter. -->
+      <FilterDropdown
+        label={m.usage_branch()}
+        items={branchItems}
+        excludedCsv={usage.excludedGitBranch
+          .split(BRANCH_LIST_SEP)
+          .join(",")}
+        onToggle={(token) => usage.toggleBranch(token)}
+        onSelectAll={() => usage.selectAllBranches()}
+        onDeselectAll={() =>
+          usage.deselectAllBranches(branchItems.map((b) => b.name))}
       />
 
       <RefreshControl

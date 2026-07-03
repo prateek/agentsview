@@ -1091,3 +1091,73 @@ func TestStoreGetDailyUsageBranchBreakdowns(t *testing.T) {
 		byKey[db.BranchInfo{Project: "proj-a", Branch: ""}].InputTokens,
 		"empty branch bucket")
 }
+
+// TestStoreGetDailyUsageExcludeGitBranchFilter guards the (project, branch)
+// exclude predicate against a real Postgres server.
+func TestStoreGetDailyUsageExcludeGitBranchFilter(t *testing.T) {
+	_, store := prepareUsageSchema(t, "agentsview_usage_exbranch_test")
+
+	ctx := context.Background()
+	_, err := store.DB().ExecContext(ctx, `
+		INSERT INTO sessions (
+			id, machine, project, agent, git_branch, started_at,
+			message_count, user_message_count
+		) VALUES
+			('usage-exbranch-001', 'test-machine', 'proj-a', 'claude', 'main',
+			 '2026-03-12T10:00:00Z'::timestamptz, 1, 1),
+			('usage-exbranch-002', 'test-machine', 'proj-a', 'claude', 'feature-x',
+			 '2026-03-12T10:05:00Z'::timestamptz, 1, 1),
+			('usage-exbranch-003', 'test-machine', 'proj-b', 'claude', 'main',
+			 '2026-03-12T10:10:00Z'::timestamptz, 1, 1)`)
+	require.NoError(t, err, "insert sessions")
+	_, err = store.DB().ExecContext(ctx, `
+		INSERT INTO messages (
+			session_id, ordinal, role, content, timestamp, content_length,
+			model, token_usage
+		) VALUES
+			('usage-exbranch-001', 0, 'assistant', 'one',
+			 '2026-03-12T10:00:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":100000}'),
+			('usage-exbranch-002', 0, 'assistant', 'two',
+			 '2026-03-12T10:05:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":200000}'),
+			('usage-exbranch-003', 0, 'assistant', 'three',
+			 '2026-03-12T10:10:00Z'::timestamptz, 3, 'test-model-a',
+			 '{"input_tokens":300000}')`)
+	require.NoError(t, err, "insert messages")
+
+	tests := []struct {
+		name             string
+		excludeGitBranch string
+		wantInput        int
+	}{
+		{
+			name:             "single pair excluded, same-named branch stays",
+			excludeGitBranch: db.EncodeBranchFilterToken("proj-a", "main"),
+			wantInput:        500000,
+		},
+		{
+			name: "multiple pairs excluded",
+			excludeGitBranch: db.EncodeBranchFilterToken("proj-a", "main") +
+				"\x1e" + db.EncodeBranchFilterToken("proj-b", "main"),
+			wantInput: 200000,
+		},
+		{
+			name:             "malformed token excludes nothing",
+			excludeGitBranch: "no-separator-here",
+			wantInput:        600000,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := store.GetDailyUsage(ctx, db.UsageFilter{
+				From:             "2026-03-12",
+				To:               "2026-03-12",
+				Timezone:         "UTC",
+				ExcludeGitBranch: tt.excludeGitBranch,
+			})
+			require.NoError(t, err, "GetDailyUsage")
+			assert.Equal(t, tt.wantInput, result.Totals.InputTokens)
+		})
+	}
+}

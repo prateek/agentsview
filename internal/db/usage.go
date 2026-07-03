@@ -90,7 +90,10 @@ type UsageFilter struct {
 	Project string // "" for all; supports comma-separated
 	Machine string // "" for all; supports comma-separated
 	// GitBranch is a branchListSep-joined list of opaque (project, branch) tokens (EncodeBranchFilterToken).
-	GitBranch         string
+	GitBranch string
+	// ExcludeGitBranch is a branchListSep-joined list of opaque (project, branch)
+	// tokens to exclude. Empty excludes nothing.
+	ExcludeGitBranch  string
 	Model             string // "" for all; supports comma-separated
 	ExcludeProject    string // comma-separated projects to exclude
 	ExcludeAgent      string // comma-separated agents to exclude
@@ -195,6 +198,12 @@ func (f UsageFilter) appendUsageSessionFilterClauses(
 	}
 	where, args = appendCSV(where, args, "s.project", f.ExcludeProject, false)
 	where, args = appendCSV(where, args, "s.agent", f.ExcludeAgent, false)
+	if f.ExcludeGitBranch != "" {
+		var clause string
+		clause, args = BranchPairExcludeClauseArgs(
+			"s.project", "s.git_branch", f.ExcludeGitBranch, args)
+		where += "\n\tAND " + clause
+	}
 
 	if f.MinUserMessages > 0 {
 		where += "\n\tAND s.user_message_count >= ?"
@@ -940,7 +949,8 @@ func cursorUsageRowsSQLForBounds(
 	// filter, so any filter they cannot satisfy (project, machine, branch)
 	// must exclude them entirely rather than let them leak into totals.
 	if f.Project != "" || f.ExcludeProject != "" ||
-		f.Machine != "" || f.GitBranch != "" || f.MinUserMessages > 0 ||
+		f.Machine != "" || f.GitBranch != "" || f.ExcludeGitBranch != "" ||
+		f.MinUserMessages > 0 ||
 		f.ExcludeOneShot || termPred != "" ||
 		f.ActiveSince != "" {
 		return "", nil, false

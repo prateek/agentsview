@@ -5,6 +5,8 @@
 
   interface FilterItem {
     name: string;
+    /** Display label when name is an opaque identity (e.g. branch tokens). */
+    label?: string;
     count?: number;
   }
 
@@ -58,11 +60,12 @@
         (i) => !filterSet.has(i.name),
       );
       if (visible) {
+        const display = visible.label ?? visible.name;
         const maxLen = 20;
-        if (visible.name.length > maxLen) {
-          return `${label}: ${visible.name.slice(0, maxLen)}...`;
+        if (display.length > maxLen) {
+          return `${label}: ${display.slice(0, maxLen)}...`;
         }
-        return `${label}: ${visible.name}`;
+        return `${label}: ${display}`;
       }
     }
     if (visibleCount === 0) return m.usage_filter_none({ label });
@@ -77,7 +80,7 @@
   const filtered = $derived(
     search
       ? items.filter((i) =>
-          i.name.toLowerCase().includes(
+          (i.label ?? i.name).toLowerCase().includes(
             search.toLowerCase(),
           ),
         )
@@ -200,7 +203,7 @@
                 style:background={color(item.name)}
               ></span>
             {/if}
-            <span class="item-name">{item.name}</span>
+            <span class="item-name">{item.label ?? item.name}</span>
             {#if item.count !== undefined}
               <span class="item-count">{item.count}</span>
             {/if}
