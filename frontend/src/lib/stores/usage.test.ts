@@ -487,6 +487,7 @@ describe("UsageStore session filter params", () => {
 
     sessions.filters.project = "proj-a";
     sessions.filters.machine = "host-a,host-b";
+    sessions.filters.branch = "proj-a\u001fmain";
     sessions.filters.agent = "claude,codex";
     sessions.filters.termination = "abandoned";
     sessions.filters.minUserMessages = 5;
@@ -500,6 +501,7 @@ describe("UsageStore session filter params", () => {
       expect.objectContaining({
         project: "proj-a",
         machine: "host-a,host-b",
+        gitBranch: "proj-a\u001fmain",
         agent: "claude,codex",
         termination: "abandoned",
         minUserMessages: 5,
@@ -514,6 +516,7 @@ describe("UsageStore session filter params", () => {
       expect.objectContaining({
         project: "proj-a",
         machine: "host-a,host-b",
+        gitBranch: "proj-a\u001fmain",
         agent: "claude,codex",
         termination: "abandoned",
         minUserMessages: 5,
