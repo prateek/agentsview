@@ -1102,10 +1102,7 @@ func (s *Store) GetMachines(
 }
 
 // GetBranches mirrors db.DB.GetBranches: distinct (project, branch) pairs,
-// including the empty no-branch value, scoped to root sessions with messages
-// and ordered by most recent session activity. Timestamps are real NULLs here
-// (not SQLite's empty strings) and created_at is nullable, so the plain
-// COALESCE plus NULLS LAST matches the SQLite ordering.
+// including the empty no-branch value, ordered by most recent session activity.
 func (s *Store) GetBranches(
 	ctx context.Context,
 	excludeOneShot, excludeAutomated bool,

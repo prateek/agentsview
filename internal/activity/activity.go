@@ -152,10 +152,8 @@ type KeyMinutes struct {
 	InteractiveCost         float64 `json:"interactive_cost"`
 }
 
-// BranchKeyMinutes is one (project, branch) breakdown row. It carries the
-// same fields as KeyMinutes but with Project/Branch as typed columns instead
-// of an opaque combined key, matching db.BranchBreakdown/service.BranchTotal
-// so the (project, branch) grain has one shape across the API.
+// BranchKeyMinutes is one (project, branch) breakdown row, matching
+// db.BranchBreakdown/service.BranchTotal's typed Project/Branch fields.
 type BranchKeyMinutes struct {
 	Project                 string  `json:"project"`
 	Branch                  string  `json:"branch"`

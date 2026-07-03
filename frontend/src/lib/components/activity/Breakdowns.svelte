@@ -37,8 +37,6 @@
   const byProject = $derived(rankedRows(report.by_project));
   const byModel = $derived(rankedRows(report.by_model));
   const byAgent = $derived(rankedRows(report.by_agent));
-  // by_branch has typed project/branch fields, not a token; synthesize one
-  // here so this panel shares the other panels' row shape.
   const byBranch = $derived(
     rankedRows(
       (report.by_branch ?? []).map((b) => ({

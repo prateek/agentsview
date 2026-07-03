@@ -176,7 +176,7 @@ One-shot and automated sessions are excluded by default. Use the
 | `--project`           | `project`           | string                            |
 | `--exclude-project`   | `exclude_project`   | string                            |
 | `--machine`           | `machine`           | string                            |
-| `--branch`            | `git_branch`        | branch name; requires `--project` to scope the `(project, branch)` filter |
+| `--branch`            | `git_branch`        | string; requires `--project`      |
 | `--agent`             | `agent`             | string                            |
 | `--date`              | `date`              | `YYYY-MM-DD`                      |
 | `--date-from`         | `date_from`         | `YYYY-MM-DD`                      |
@@ -446,7 +446,7 @@ default; opt back in with `--include-one-shot`,
 | `--project`           | `project`           | string                                                 |
 | `--exclude-project`   | `exclude_project`   | string                                                 |
 | `--machine`           | `machine`           | string                                                 |
-| `--branch`            | `git_branch`        | branch name; requires `--project`                      |
+| `--branch`            | `git_branch`        | string; requires `--project`                           |
 | `--agent`             | `agent`             | string                                                 |
 | `--date`              | `date`              | `YYYY-MM-DD`                                           |
 | `--date-from`         | `date_from`         | `YYYY-MM-DD`                                           |
@@ -601,7 +601,7 @@ are also included by default and can be filtered with the
 | `timezone` | IANA timezone name; default `UTC` |
 | `bucket` | Optional bucket override: `5m`, `15m`, `1h`, `1d`, or `1w` |
 | `project` | Filter by project |
-| `git_branch` | Filter by branch; requires `project` to scope the `(project, branch)` filter |
+| `git_branch` | Filter by branch; requires `project` |
 | `agent` | Filter by agent |
 | `machine` | Filter by machine |
 | `automation` | `all`, `interactive`, or `automated`; default `all` |
@@ -674,14 +674,11 @@ Response excerpt:
 ```
 
 Breakdown rows include total, automated, and interactive minutes and
-costs. `by_branch` rows carry `project` and `branch` as separate fields
-(unlike `by_project`/`by_model`/`by_agent`, which use a single opaque
-`key`); sessions without a recorded branch roll up under an empty
-`branch`. To filter the whole report to one branch, pass `project` and
-`git_branch` (branch name) together. Session rows with no reliable
-timestamped activity use
-`"timing_quality": "untimed"` and `agent_minutes: null`; they can still
-contribute cost and output tokens when usage rows exist.
+costs. `by_branch` rows carry `project`/`branch` as separate fields; an
+empty `branch` means no recorded branch. Session rows with no reliable
+timestamped activity use `"timing_quality": "untimed"` and
+`agent_minutes: null`; they can still contribute cost and output tokens
+when usage rows exist.
 
 ---
 

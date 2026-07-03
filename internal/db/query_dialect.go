@@ -630,11 +630,9 @@ func EncodeBranchFilterToken(project, branch string) string {
 // Surfaces translate it into their own parameter wording.
 var ErrBranchWithoutProject = errors.New("branch filter requires a project")
 
-// BranchFilterToken validates a (project, branch) filter pair and renders the
-// opaque filter token, so surfaces that accept a plain branch name (CLI flags,
-// MCP params) share one scoping rule. An empty branch yields an empty token,
-// meaning no filter: flag-style surfaces treat an unset branch as absent
-// rather than as the no-branch bucket.
+// BranchFilterToken encodes a plain (project, branch) pair into a filter
+// token, or "" (no error) if branch is empty. Errors with
+// ErrBranchWithoutProject if branch is set but project is not.
 func BranchFilterToken(project, branch string) (string, error) {
 	if branch == "" {
 		return "", nil

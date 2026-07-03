@@ -1028,9 +1028,7 @@ func TestStoreGetSessionUsage_CopilotNoAICreditsUnpriced(t *testing.T) {
 }
 
 // TestStoreGetDailyUsageBranchBreakdowns guards the (project, branch)
-// accumulator against a real Postgres server; SQLite and DuckDB have the
-// equivalent coverage (TestGetDailyUsageBranchBreakdowns,
-// TestDuckDBBranchDimension) but this backend had none.
+// accumulator against a real Postgres server.
 func TestStoreGetDailyUsageBranchBreakdowns(t *testing.T) {
 	_, store := prepareUsageSchema(t, "agentsview_usage_branch_test")
 

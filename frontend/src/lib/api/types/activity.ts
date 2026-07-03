@@ -9,16 +9,18 @@ import type {
 
 export type Bucket = ActivityBucket;
 export type ReportInterval = ActivityReportInterval;
+// models comes across as any[]; the codegen can't type OpenAPI 3.1's
+// nullable-array items (see the Report comment below).
 export type SessionRow = Omit<ActivitySessionRow, "models"> & {
   models: string[] | null;
 };
 export type KeyMinutes = ActivityKeyMinutes;
 export type BranchKeyMinutes = ActivityBranchKeyMinutes;
 
-// Report narrows the generated model's `any[] | null` collections (the
-// codegen degrades huma's nullable arrays) to their element types. The
-// generated ActivityReport stays structurally assignable to Report, so API
-// responses need no runtime conversion.
+// Narrows the generated model's any[] | null collections to their element
+// types; openapi-typescript-codegen can't type OpenAPI 3.1's nullable-array
+// syntax (type: [T, "null"]) and falls back to any[]. Structurally
+// compatible with ActivityReport, so responses need no runtime conversion.
 export type Report = Omit<
   ActivityReport,
   | "buckets"

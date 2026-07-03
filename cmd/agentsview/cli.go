@@ -24,8 +24,6 @@ const (
 
 const dataVersionTooNewExitCode = 3
 
-// branchFilterToken renders the --branch/--project flag pair as a filter
-// token, translating the shared scoping rule into flag wording.
 func branchFilterToken(project, branch string) (string, error) {
 	tok, err := db.BranchFilterToken(project, branch)
 	if errors.Is(err, db.ErrBranchWithoutProject) {

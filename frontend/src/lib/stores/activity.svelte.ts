@@ -55,7 +55,6 @@ class ActivityStore {
   project: string = $state("");
   agent: string = $state("");
   machine: string = $state("");
-  /** Encoded (project, branch) token from the /branches endpoint, or "". */
   branch: string = $state("");
   automation: Automation = $state("all");
   report: Report | null = $state(null);

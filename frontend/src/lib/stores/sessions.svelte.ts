@@ -83,8 +83,6 @@ export interface RecentlyDeletedSessions {
 export interface Filters {
   project: string;
   machine: string;
-  // branch is a BRANCH_LIST_SEP-joined list of opaque (project, branch)
-  // tokens from the /branches endpoint.
   branch: string;
   agent: string;
   termination: string;
@@ -173,9 +171,6 @@ function hasDateFilters(f: Filters): boolean {
   return !!(f.date || f.dateFrom || f.dateTo);
 }
 
-// toggleListValue adds value to a sep-joined list string, or removes it when
-// already present. Shared by the multi-select filters (machine, agent,
-// branch), which differ only in field and separator.
 function toggleListValue(list: string, value: string, sep: string): string {
   const current = list ? list.split(sep) : [];
   const idx = current.indexOf(value);
@@ -1218,8 +1213,6 @@ class SessionsStore {
   }
 
   invalidateFilterCaches() {
-    // Branches load lazily on first dropdown open, so unlike the always-loaded
-    // lists below, only refresh them if something already requested them.
     const reloadBranches =
       this.branchesLoaded || this.branchesPromise !== null;
     this.projectsVersion++;

@@ -37,8 +37,6 @@ type ActivityReportConfig struct {
 // runActivityReport syncs, resolves the range, runs the report, and prints it.
 func runActivityReport(cfg ActivityReportConfig) {
 	ctx := context.Background()
-	// Validate the (project, branch) flag combo up front so a bad combination
-	// fails before we resolve a backend, which may sync or start a daemon.
 	if _, err := branchFilterToken(cfg.Project, cfg.Branch); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(1)
@@ -255,7 +253,7 @@ func printKeyMinutes(label string, rows []activity.KeyMinutes) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	for _, row := range topN(rows, 5) {
+	for _, row := range firstN(rows, 5) {
 		fmt.Fprintf(w, "  %s\t%.1f min\n",
 			sanitizeTerminal(row.Key), row.AgentMinutes)
 	}
@@ -271,7 +269,7 @@ func printBranchKeyMinutes(label string, rows []activity.BranchKeyMinutes) {
 		return
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	for _, row := range topN(rows, 5) {
+	for _, row := range firstN(rows, 5) {
 		branch := row.Branch
 		if branch == "" {
 			branch = "(no branch)"
@@ -295,7 +293,7 @@ func printActivitySessions(rows []activity.SessionRow) {
 	}
 	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "  TITLE\tPROJECT\tAGENT\tMINUTES\tCOST")
-	for _, s := range topN(rows, 5) {
+	for _, s := range firstN(rows, 5) {
 		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
 			sanitizeTerminal(s.Title), sanitizeTerminal(s.Project),
 			sanitizeTerminal(s.Agent),
@@ -305,7 +303,8 @@ func printActivitySessions(rows []activity.SessionRow) {
 	w.Flush()
 }
 
-func topN[T any](rows []T, n int) []T {
+// firstN truncates to the first n rows of already-sorted input.
+func firstN[T any](rows []T, n int) []T {
 	return rows[:min(len(rows), n)]
 }
 
