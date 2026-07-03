@@ -1058,22 +1058,27 @@ class SessionsStore {
       .includes(status);
   }
 
-  get hasActiveFilters(): boolean {
+  // Counts active filter dimensions for the sidebar filter-button badge.
+  // Project is excluded: it is not a control inside the filter dropdown.
+  // The date trio counts as one "date range" dimension.
+  get activeFilterCount(): number {
     const f = this.filters;
-    return !!(
-      f.machine ||
-      f.branch ||
-      f.agent ||
-      f.termination ||
-      f.recentlyActive ||
-      f.hideUnknownProject ||
-      f.dateFrom ||
-      f.dateTo ||
-      f.date ||
-      f.minUserMessages > 0 ||
-      !f.includeOneShot ||
-      f.includeAutomated
-    );
+    let n = 0;
+    if (f.machine) n++;
+    if (f.branch) n++;
+    if (f.agent) n++;
+    if (f.termination) n++;
+    if (f.recentlyActive) n++;
+    if (f.hideUnknownProject) n++;
+    if (f.date || f.dateFrom || f.dateTo) n++;
+    if (f.minUserMessages > 0) n++;
+    if (!f.includeOneShot) n++;
+    if (f.includeAutomated) n++;
+    return n;
+  }
+
+  get hasActiveFilters(): boolean {
+    return this.activeFilterCount > 0;
   }
 
   clearSessionFilters(options: ClearSessionFiltersOptions = {}) {

@@ -21,7 +21,8 @@
     onToggleGroupByAgent?: () => void;
     onToggleGroupByProject?: () => void;
     onClearGroupMode?: () => void;
-    extraActive?: boolean;
+    /** Page-local filters outside this dropdown: a count, or a boolean for one. */
+    extraActive?: boolean | number;
     onClearExtra?: () => void;
     extraSections?: Snippet;
   }
@@ -48,10 +49,17 @@
   let machineSearch = $state("");
   let branchSearch = $state("");
 
+  // Each section floats selected entries to the top so a reopened dropdown
+  // shows the active selection without scrolling; the sort is stable, so
+  // ties keep each section's own ordering (count for agents, alphabetical
+  // for machines, server recency for branches).
   const sortedAgents = $derived.by(() => {
-    const agents = [...sessions.agents].sort(
-      (a, b) => b.session_count - a.session_count,
-    );
+    const agents = [...sessions.agents].sort((a, b) => {
+      const aSel = sessions.isAgentSelected(a.name);
+      const bSel = sessions.isAgentSelected(b.name);
+      if (aSel !== bSel) return aSel ? -1 : 1;
+      return b.session_count - a.session_count;
+    });
     if (!agentSearch) return agents;
     const q = agentSearch.toLowerCase();
     return agents.filter((a) =>
@@ -60,24 +68,33 @@
   });
 
   const sortedMachines = $derived.by(() => {
-    const machines = [...sessions.machines].sort();
+    const machines = [...sessions.machines].sort((a, b) => {
+      const aSel = sessions.isMachineSelected(a);
+      const bSel = sessions.isMachineSelected(b);
+      if (aSel !== bSel) return aSel ? -1 : 1;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
     if (!machineSearch) return machines;
     const q = machineSearch.toLowerCase();
     return machines.filter((m) => m.toLowerCase().includes(q));
   });
 
-  // Server order is most-recent-activity first; only filter, never re-sort.
+  const selectedBranchSet = $derived(new Set(sessions.selectedBranches));
+
   const visibleBranches = $derived.by(() => {
-    if (!branchSearch) return sessions.branches;
+    const branches = [...sessions.branches].sort((a, b) => {
+      const aSel = selectedBranchSet.has(a.token);
+      const bSel = selectedBranchSet.has(b.token);
+      return aSel === bSel ? 0 : aSel ? -1 : 1;
+    });
+    if (!branchSearch) return branches;
     const q = branchSearch.toLowerCase();
-    return sessions.branches.filter(
+    return branches.filter(
       (b) =>
         b.branch.toLowerCase().includes(q) ||
         b.project.toLowerCase().includes(q),
     );
   });
-
-  const selectedBranchSet = $derived(new Set(sessions.selectedBranches));
 
   $effect(() => {
     if (open) {
@@ -90,11 +107,16 @@
     }
   });
 
-  let hasFilters = $derived(
-    sessions.hasActiveFilters ||
-      (showStarred && starred.filterOnly) ||
-      extraActive,
+  const totalFilterCount = $derived(
+    sessions.activeFilterCount +
+      (showStarred && starred.filterOnly ? 1 : 0) +
+      (typeof extraActive === "number"
+        ? extraActive
+        : extraActive
+          ? 1
+          : 0),
   );
+  let hasFilters = $derived(totalFilterCount > 0);
   let isRecentlyActiveOn = $derived(
     sessions.filters.recentlyActive,
   );
@@ -161,7 +183,9 @@
   aria-expanded={open}
 >
   <FunnelIcon size="14" strokeWidth="2" aria-hidden="true" />
-  {#if hasFilters || (showDisplay && groupMode !== "none")}
+  {#if totalFilterCount > 0}
+    <span class="filter-badge">{totalFilterCount}</span>
+  {:else if showDisplay && groupMode !== "none"}
     <span class="filter-indicator"></span>
   {/if}
 </button>
@@ -492,6 +516,24 @@
     height: 6px;
     border-radius: 50%;
     background: var(--accent-green);
+  }
+
+  .filter-badge {
+    position: absolute;
+    top: 0px;
+    right: 0px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: var(--accent-amber);
+    color: var(--accent-amber-foreground);
+    font-size: 7px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    pointer-events: none;
   }
 
   .filter-dropdown {
