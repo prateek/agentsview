@@ -112,16 +112,20 @@ func assistantUsageMsg(
 func TestBuildUsageFilter_ValidMapping(t *testing.T) {
 	t.Parallel()
 	f, err := service.BuildUsageFilter(service.UsageRequest{
-		From:    "2024-06-01",
-		To:      "2024-06-15",
-		Project: "proj",
-		Agent:   "claude",
+		From:             "2024-06-01",
+		To:               "2024-06-15",
+		Project:          "proj",
+		Agent:            "claude",
+		GitBranch:        "proj\x1fmain",
+		ExcludeGitBranch: "proj\x1fdev",
 		// IncludeOneShot/IncludeAutomated default false -> exclude true.
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "2024-06-01", f.From)
 	assert.Equal(t, "2024-06-15", f.To)
 	assert.Equal(t, "proj", f.Project)
+	assert.Equal(t, "proj\x1fmain", f.GitBranch)
+	assert.Equal(t, "proj\x1fdev", f.ExcludeGitBranch)
 	assert.Equal(t, "UTC", f.Timezone, "empty timezone defaults to UTC")
 	assert.True(t, f.ExcludeOneShot, "IncludeOneShot=false -> ExcludeOneShot=true")
 	assert.True(t, f.ExcludeAutomated, "IncludeAutomated=false -> ExcludeAutomated=true")
