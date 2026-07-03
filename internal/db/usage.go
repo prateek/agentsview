@@ -1621,6 +1621,28 @@ func paddedUTCBound(ts string, hours int) string {
 	return t.Add(time.Duration(hours) * time.Hour).Format(time.RFC3339)
 }
 
+// usageBucket accumulates token and cost totals for one key in a
+// GetDailyUsage breakdown map.
+type usageBucket struct {
+	inputTok  int
+	outputTok int
+	cacheCr   int
+	cacheRd   int
+	cost      float64
+}
+
+// addUsageBucket sums b into m[key], covering the model/project/agent/branch
+// breakdown maps with one accumulator regardless of key shape.
+func addUsageBucket[K comparable](m map[K]usageBucket, key K, b usageBucket) {
+	cur := m[key]
+	cur.inputTok += b.inputTok
+	cur.outputTok += b.outputTok
+	cur.cacheCr += b.cacheCr
+	cur.cacheRd += b.cacheRd
+	cur.cost += b.cost
+	m[key] = cur
+}
+
 // GetDailyUsage returns token usage and cost aggregated by day.
 // It scans messages with non-empty token_usage JSON blobs,
 // parses them in Go (faster than SQLite's json_extract per row),
@@ -1661,15 +1683,8 @@ func (db *DB) GetDailyUsage(
 		model     string
 		gitBranch string
 	}
-	type bucket struct {
-		inputTok  int
-		outputTok int
-		cacheCr   int
-		cacheRd   int
-		cost      float64
-	}
 
-	accum := make(map[accumKey]*bucket)
+	accum := make(map[accumKey]*usageBucket)
 
 	seen := make(map[usageDedupToken]struct{})
 	var seenSessions map[string]UsageSessionInfo
@@ -1738,7 +1753,7 @@ func (db *DB) GetDailyUsage(
 		}
 		b, ok := accum[key]
 		if !ok {
-			b = &bucket{}
+			b = &usageBucket{}
 			accum[key] = b
 		}
 		b.inputTok += inputTok
@@ -1896,58 +1911,30 @@ func (db *DB) GetDailyUsage(
 		branch  string
 	}
 	type dayMaps struct {
-		models   map[string]bucket
-		projects map[string]bucket
-		agents   map[string]bucket
-		branches map[branchMapKey]bucket
+		models   map[string]usageBucket
+		projects map[string]usageBucket
+		agents   map[string]usageBucket
+		branches map[branchMapKey]usageBucket
 	}
 	days := make(map[string]*dayMaps, 64)
 	for key, b := range accum {
 		dm, ok := days[key.date]
 		if !ok {
 			dm = &dayMaps{
-				models:   make(map[string]bucket, 4),
-				projects: make(map[string]bucket, 8),
-				agents:   make(map[string]bucket, 4),
-				branches: make(map[branchMapKey]bucket, 8),
+				models:   make(map[string]usageBucket, 4),
+				projects: make(map[string]usageBucket, 8),
+				agents:   make(map[string]usageBucket, 4),
+				branches: make(map[branchMapKey]usageBucket, 8),
 			}
 			days[key.date] = dm
 		}
-		cur := dm.models[key.model]
-		cur.inputTok += b.inputTok
-		cur.outputTok += b.outputTok
-		cur.cacheCr += b.cacheCr
-		cur.cacheRd += b.cacheRd
-		cur.cost += b.cost
-		dm.models[key.model] = cur
-
-		cur = dm.projects[key.project]
-		cur.inputTok += b.inputTok
-		cur.outputTok += b.outputTok
-		cur.cacheCr += b.cacheCr
-		cur.cacheRd += b.cacheRd
-		cur.cost += b.cost
-		dm.projects[key.project] = cur
-
-		cur = dm.agents[key.agent]
-		cur.inputTok += b.inputTok
-		cur.outputTok += b.outputTok
-		cur.cacheCr += b.cacheCr
-		cur.cacheRd += b.cacheRd
-		cur.cost += b.cost
-		dm.agents[key.agent] = cur
-
-		bk := branchMapKey{
+		addUsageBucket(dm.models, key.model, *b)
+		addUsageBucket(dm.projects, key.project, *b)
+		addUsageBucket(dm.agents, key.agent, *b)
+		addUsageBucket(dm.branches, branchMapKey{
 			project: key.project,
 			branch:  key.gitBranch,
-		}
-		cur = dm.branches[bk]
-		cur.inputTok += b.inputTok
-		cur.outputTok += b.outputTok
-		cur.cacheCr += b.cacheCr
-		cur.cacheRd += b.cacheRd
-		cur.cost += b.cost
-		dm.branches[bk] = cur
+		}, *b)
 	}
 
 	dateKeys := make([]string, 0, len(days))
