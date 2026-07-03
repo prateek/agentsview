@@ -291,6 +291,7 @@ function usageSummaryWithOptions(options: {
       cost: 0,
     })),
     agentTotals: [],
+    branchTotals: [],
     sessionCounts: {
       total: 0,
       byProject: {},
